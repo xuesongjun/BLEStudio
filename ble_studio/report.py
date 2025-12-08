@@ -114,7 +114,7 @@ class ReportGenerator:
                        iq_signal: np.ndarray,
                        noisy_signal: np.ndarray,
                        sample_rate: float = 8e6):
-        """生成首页"""
+        """生成首页 - 所有图表展示 RX 端数据 (信道输出/解调输入)"""
         tx = results.get('tx', {})
         mod = results.get('modulation', {})
         demod = results.get('demodulation', {})
@@ -125,28 +125,32 @@ class ReportGenerator:
         symbol_rate = mod.get('symbol_rate_msps', 1.0) * 1e6
         samples_per_symbol = int(sample_rate / symbol_rate)
 
-        # 生成图表 JSON
-        fig_iq = self.viz.plot_iq_combined(iq_signal, sample_rate, title='IQ 时域波形', max_samples=2000)
+        # 首页所有图表使用 RX 信号 (noisy_signal = 信道输出)
+        # 如需查看 TX 理想信号，用户可通过 bypass 信道模型 (SNR=inf, freq_offset=0)
+        rx_signal = noisy_signal
+
+        # 生成图表 JSON - 全部使用 RX 信号
+        fig_iq = self.viz.plot_iq_combined(rx_signal, sample_rate, title='IQ 时域波形', max_samples=2000)
         fig_iq.update_layout(height=280, margin=dict(l=50, r=30, t=40, b=40))
 
-        fig_spectrum = self.viz.plot_spectrum(iq_signal, sample_rate, title='频谱图')
+        fig_spectrum = self.viz.plot_spectrum(rx_signal, sample_rate, title='频谱图')
         fig_spectrum.update_layout(height=280, margin=dict(l=50, r=30, t=40, b=40))
 
-        fig_const = self.viz.plot_constellation(noisy_signal, title='星座图', downsample=8)
+        fig_const = self.viz.plot_constellation(rx_signal, title='星座图', downsample=8)
         fig_const.update_layout(height=280, margin=dict(l=50, r=30, t=40, b=40))
 
-        fig_freq = self.viz.plot_frequency_deviation(iq_signal, sample_rate, title='瞬时频率')
+        fig_freq = self.viz.plot_frequency_deviation(rx_signal, sample_rate, title='瞬时频率')
         fig_freq.update_layout(height=280, margin=dict(l=50, r=30, t=40, b=40))
 
-        # 新增: 频率眼图
+        # 频率眼图 - 使用 RX 信号
         fig_eye = self.viz.plot_frequency_eye_diagram(
-            iq_signal, sample_rate, samples_per_symbol,
+            rx_signal, sample_rate, samples_per_symbol,
             title='频率眼图', num_traces=80
         )
         fig_eye.update_layout(height=280, margin=dict(l=50, r=30, t=40, b=40))
 
-        # 新增: 计算 RF 测试指标
-        rf_metrics = self.viz.calculate_rf_metrics(iq_signal, sample_rate, samples_per_symbol)
+        # 计算 RF 测试指标 - 使用 RX 信号
+        rf_metrics = self.viz.calculate_rf_metrics(rx_signal, sample_rate, samples_per_symbol)
         rf_metrics['payload_type'] = rf_test.get('payload_type', tx.get('test_mode', 'ADV'))
 
         # 新增: RF 测试仪表盘
@@ -343,12 +347,12 @@ class ReportGenerator:
             </div>
         </div>
         <div class="charts-panel">
-            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag tx">TX</span> IQ 时域波形<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-iq"></div></div></div>
-            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag tx">TX</span> 频谱图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-spectrum"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag rx">RX</span> IQ 时域波形<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-iq"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag rx">RX</span> 频谱图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-spectrum"></div></div></div>
             <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag rx">RX</span> 星座图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-const"></div></div></div>
-            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag tx">TX</span> 瞬时频率<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-freq"></div></div></div>
-            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag tx">TX</span> 频率眼图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-eye"></div></div></div>
-            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag tx">TX</span> RF 测试仪表盘</div><div class="chart-content"><div id="chart-rf-panel"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag rx">RX</span> 瞬时频率<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-freq"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag rx">RX</span> 频率眼图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-eye"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag rx">RX</span> RF 测试仪表盘</div><div class="chart-content"><div id="chart-rf-panel"></div></div></div>
             <div class="data-compare">
                 <h3>Payload 数据对比</h3>
                 <div class="payload-grid">

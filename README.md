@@ -14,6 +14,84 @@ BLE 基带算法平台 - 支持 BLE 数据包生成和解调仿真。
 - **IQ 数据导入导出**: 支持 Verilog 硬件仿真、MATLAB .mat 文件
 - **交互式可视化**: 基于 Plotly 的美观图表，支持频率眼图、RF 指标面板等
 
+## 平台架构
+
+BLE Studio 采用模块化数据流架构，支持灵活的信号导入导出：
+
+```mermaid
+graph LR
+    TX["BLE TX<br/>(调制器)"]
+    IQ["外部 IQ 数据<br/>(txt/mat)"]
+    IN["信道入口"]
+    CH["信道模型<br/>(AWGN/衰落)"]
+    OUT["信道出口"]
+    IQOUT["IQ 导出<br/>(txt/mat)"]
+    RX["BLE RX<br/>(解调器)"]
+
+    TX --> IN
+    IQ --> IN
+    IN --> CH
+    CH --> OUT
+    OUT --> IQOUT
+    OUT --> RX
+```
+
+### 数据流说明
+
+1. **信道入口 (Channel Input)**: 可以选择使用 BLE TX 调制器生成的信号，或导入外部 IQ 数据文件
+2. **信道模型 (Channel Model)**: 对信号施加噪声、频偏、多径衰落等损伤
+3. **信道出口 (Channel Output)**: 将经过信道后的信号导出，或送入 BLE RX 解调器
+
+### 信道入口配置
+
+支持导入外部 IQ 数据替代 TX 输出，用于测试实际硬件信号：
+
+```yaml
+channel_input:
+  enabled: true                    # 启用导入
+  file: "captured_signal.txt"      # 导入文件路径
+  file_type: "auto"                # auto/txt/mat
+  # TXT 文件配置
+  bit_width: 12                    # 量化位宽
+  frac_bits: 0                     # Q 格式小数位
+  iq_format: "two_column"          # two_column/interleaved/separate
+  number_format: "signed"          # signed/unsigned/hex/float
+  skip_lines: 0                    # 跳过头部行数
+  # MAT 文件配置
+  mat_i_var: "I"                   # I 数据变量名
+  mat_q_var: "Q"                   # Q 数据变量名
+  mat_complex_var: ""              # 复数变量名 (可选)
+```
+
+### 信道出口配置
+
+支持将信道输出导出为多种格式：
+
+```yaml
+channel_output:
+  enabled: true                    # 启用导出
+  bit_width: 12                    # 量化位宽
+  frac_bits: 0                     # Q 格式小数位
+  iq_format: "two_column"          # two_column/interleaved/separate
+  number_format: "signed"          # signed/unsigned/hex
+  add_header: true                 # 添加文件头注释
+  # 导出格式选择
+  export_txt: true                 # 导出 TXT 文件
+  export_mat: true                 # 导出 MATLAB .mat 文件
+  export_verilog: false            # 导出 Verilog $readmemh 格式
+  export_separate: false           # 导出分离的 I/Q 文件
+  export_tx: true                  # 同时导出 TX 理想信号
+```
+
+### 使用场景
+
+| 场景 | 信道入口 | 信道出口 |
+|------|---------|---------|
+| 纯软件仿真 | 使用 BLE TX | 送入 BLE RX |
+| 硬件信号分析 | 导入采集的 IQ 数据 | 送入 BLE RX 解调 |
+| 生成测试向量 | 使用 BLE TX | 导出 txt/mat/mem |
+| 联合仿真 | 导入外部 IQ | 导出处理后的 IQ |
+
 ## 安装
 
 ```bash
@@ -445,14 +523,118 @@ print(f"灵敏度: {sensitivity:.2f} dB")
 
 ## 运行示例
 
+### 快速开始
+
 ```bash
-# 使用默认配置运行
+# 1. 使用默认配置运行 (RF Test 模式)
 python examples/demo.py
 
-# 使用指定配置文件
-python examples/demo.py examples/config_rftest_prbs9.yaml
+# 2. 使用指定配置文件
+python examples/demo.py examples/config_rftest_pattern.yaml
+```
+
+运行后在 `results/` 目录生成 HTML 报告，浏览器打开 `results/index.html` 查看结果。
+
+### 预置配置文件
+
+| 配置文件 | 用途 | 说明 |
+|---------|------|------|
+| `config.yaml` | 默认配置 | RF Test 模式，PRBS9，SNR=15dB |
+| `config_rftest_pattern.yaml` | 频谱测试 | 0x55 交替模式，高 SNR，关闭白化 |
+| `config_rftest_prbs9.yaml` | DTM 测试 | PRBS9 伪随机序列 |
+| `config_rftest_2m_prbs15.yaml` | 2M PHY 测试 | LE 2M，PRBS15 序列 |
+| `config_advertising.yaml` | 广播包测试 | BLE 广播数据包 |
+| `config_low_snr.yaml` | 灵敏度测试 | 低 SNR 环境 |
+| `config_ideal.yaml` | 理想信道 | 无噪声，无频偏 |
+
+### 常用配置修改
+
+**修改 `examples/config.yaml`：**
+
+```yaml
+# 切换仿真模式
+mode: "rf_test"        # rf_test (DTM) 或 advertising (广播包)
+
+# RF Test 参数
+rf_test:
+  payload_type: "PRBS9"     # PRBS9/PRBS15/PATTERN_10101010/...
+  payload_length: 37        # 0-255 bytes
+  channel: 0                # 0-39
+  whitening: false          # DTM 应关闭
+
+# 信道参数
+channel:
+  snr_db: 15                # 信噪比
+  freq_offset: 50.0e3       # 载波频偏 (Hz)
+
+# 查看 TX 理想信号 (bypass 信道)
+channel:
+  snr_db: 100               # 高 SNR = 几乎无噪声
+  freq_offset: 0            # 无频偏
+```
+
+### 运行示例命令
+
+```bash
+# RF Test - PRBS9 (默认)
+python examples/demo.py
+
+# RF Test - 0x55 交替模式 (频谱测试)
+python examples/demo.py examples/config_rftest_pattern.yaml
+
+# RF Test - 2M PHY PRBS15
+python examples/demo.py examples/config_rftest_2m_prbs15.yaml
+
+# 广播包模式
+python examples/demo.py examples/config_advertising.yaml
+
+# 低 SNR 灵敏度测试
 python examples/demo.py examples/config_low_snr.yaml
+
+# 理想信道 (查看 TX 理想波形)
 python examples/demo.py examples/config_ideal.yaml
+```
+
+### 输出文件
+
+运行后在 `results/` 目录生成：
+
+| 文件 | 说明 |
+|------|------|
+| `index.html` | 首页 (RX 端图表 + 解调结果) |
+| `charts.html` | TX/RX 对比图表页面 |
+| `report.html` | 详细仿真报告 |
+| `iq_tx_ideal.txt/mat` | TX 理想 IQ 数据 |
+| `iq_channel_out.txt/mat` | 信道输出 IQ 数据 |
+
+### 小工具 (utils/)
+
+`utils/` 目录包含独立的小工具脚本：
+
+```bash
+# SNR 扫描测试 - 测试不同信噪比下的解调性能
+python utils/snr_sweep.py
+
+# IQ 导入导出验证 - 测试 IQ 数据导入导出的正确性
+python utils/iq_corr_test.py
+```
+
+**SNR 扫描测试输出示例:**
+
+```
+============================================================
+BLE Studio - SNR 扫描测试
+============================================================
+测试次数: 20 次/SNR点
+频偏: 50 kHz
+------------------------------------------------------------
+  SNR (dB) |       成功率 |     CRC通过率 |    数据匹配率
+------------------------------------------------------------
+         0 |        0.0% |        0.0% |        0.0%
+         5 |       15.0% |       10.0% |       10.0%
+        10 |       85.0% |       80.0% |       80.0%
+        14 |      100.0% |      100.0% |      100.0%
+------------------------------------------------------------
 ```
 
 输出示例:
@@ -509,6 +691,9 @@ BLEStudio/
 │   ├── config_low_snr.yaml        # 低 SNR 灵敏度测试配置
 │   ├── config_channel_scan.yaml   # 全信道扫描配置
 │   └── config_ideal.yaml          # 理想信道测试配置
+├── utils/                # 小工具/脚本目录
+│   ├── snr_sweep.py      # SNR 扫描测试 (不同信噪比解调性能)
+│   └── iq_corr_test.py   # IQ 导入导出验证 (相关性测试)
 ├── results/              # 输出目录 (HTML 报告, IQ 数据)
 ├── pyproject.toml        # 项目配置
 ├── requirements.txt      # 依赖列表
