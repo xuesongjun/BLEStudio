@@ -318,6 +318,7 @@ def run_rf_test(config: dict = None):
     payload_type = getattr(RFTestPayloadType, payload_type_str, RFTestPayloadType.PRBS9)
     payload_length = int(test_cfg.get('payload_length', 37))
     test_channel = test_cfg.get('channel', 0)
+    whitening = bool(test_cfg.get('whitening', False))
 
     # 调制参数
     phy_mode = getattr(BLEPhyMode, mod_cfg.get('phy_mode', 'LE_1M'))
@@ -341,7 +342,8 @@ def run_rf_test(config: dict = None):
         payload_type=payload_type,
         payload_length=payload_length,
         channel=test_channel,
-        phy_mode=phy_mode
+        phy_mode=phy_mode,
+        whitening=whitening
     )
     bits = packet.generate()
     test_info = packet.get_test_info()
@@ -351,6 +353,7 @@ def run_rf_test(config: dict = None):
     print(f"[DTM] PHY: {test_info['phy_mode']}")
     print(f"[DTM] 信道: {test_info['channel']} ({test_info['frequency_mhz']} MHz)")
     print(f"[DTM] 接入地址: {test_info['access_address']}")
+    print(f"[DTM] 白化: {'开启' if whitening else '关闭'}")
     print(f"[DTM] 比特数: {len(bits)}")
 
     # ========== 3. 调制 ==========
@@ -375,7 +378,8 @@ def run_rf_test(config: dict = None):
         phy_mode=phy_mode,
         sample_rate=sample_rate,
         access_address=0x71764129,  # DTM 接入地址
-        channel=test_channel
+        channel=test_channel,
+        whitening=whitening  # 与 TX 保持一致
     ))
     result = demodulator.demodulate(impaired_signal)
 

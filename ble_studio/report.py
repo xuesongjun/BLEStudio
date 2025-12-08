@@ -150,7 +150,8 @@ class ReportGenerator:
         rf_metrics['payload_type'] = rf_test.get('payload_type', tx.get('test_mode', 'ADV'))
 
         # 新增: RF 测试仪表盘
-        fig_rf_panel = self.viz.plot_rf_metrics_panel(rf_metrics, title='RF 测试指标')
+        payload_type = rf_metrics.get('payload_type', 'PRBS9')
+        fig_rf_panel = self.viz.plot_rf_metrics_panel(rf_metrics, title='RF 测试指标', payload_type=payload_type)
 
         # 转换为 JSON (使用共享函数解码 bdata 格式)
         chart_iq_json = _fig_to_json(fig_iq)
@@ -174,32 +175,71 @@ class ReportGenerator:
                         noisy_signal: np.ndarray,
                         bits: np.ndarray,
                         sample_rate: float = 8e6):
-        """生成图表页面"""
+        """生成图表页面 - TX → 信道 → RX 左右对比布局"""
         mod = results.get('modulation', {})
         symbol_rate = mod.get('symbol_rate_msps', 1.0) * 1e6
         samples_per_symbol = int(sample_rate / symbol_rate)
 
-        charts_data = [
-            ('IQ 时域波形', 'chart-iq', self.viz.plot_iq_time(iq_signal, sample_rate, title='BLE IQ 时域波形')),
-            ('频谱图', 'chart-spectrum', self.viz.plot_spectrum(iq_signal, sample_rate, title='BLE 信号频谱')),
-            ('星座图 (理想)', 'chart-const-ideal', self.viz.plot_constellation(iq_signal, title='星座图 (理想信号)', downsample=8)),
-            ('星座图 (加噪)', 'chart-const-noisy', self.viz.plot_constellation(noisy_signal, title='星座图 (加噪后)', downsample=8)),
-            ('时频谱图', 'chart-spectrogram', self.viz.plot_spectrogram(iq_signal, sample_rate, title='BLE 信号时频谱图')),
-            ('比特流', 'chart-bits', self.viz.plot_bits(bits, title='BLE 数据包比特流')),
-            ('瞬时频率', 'chart-freq', self.viz.plot_frequency_deviation(iq_signal, sample_rate, title='GFSK 瞬时频率偏移')),
-            ('频率眼图', 'chart-eye', self.viz.plot_frequency_eye_diagram(iq_signal, sample_rate, samples_per_symbol, title='GFSK 频率眼图', num_traces=100)),
+        # TX 端图表 (理想信号)
+        tx_charts = [
+            ('IQ 时域波形', 'chart-tx-iq', self.viz.plot_iq_combined(iq_signal, sample_rate, title='TX IQ 波形', max_samples=2000)),
+            ('频谱图', 'chart-tx-spectrum', self.viz.plot_spectrum(iq_signal, sample_rate, title='TX 频谱')),
+            ('星座图', 'chart-tx-const', self.viz.plot_constellation(iq_signal, title='TX 星座图', downsample=8)),
+            ('瞬时频率', 'chart-tx-freq', self.viz.plot_frequency_deviation(iq_signal, sample_rate, title='TX 瞬时频率')),
+            ('频率眼图', 'chart-tx-eye', self.viz.plot_frequency_eye_diagram(iq_signal, sample_rate, samples_per_symbol, title='TX 频率眼图', num_traces=80)),
         ]
 
-        charts_html = []
-        for title, div_id, fig in charts_data:
+        # RX 端图表 (经过信道后的信号)
+        rx_charts = [
+            ('IQ 时域波形', 'chart-rx-iq', self.viz.plot_iq_combined(noisy_signal, sample_rate, title='RX IQ 波形', max_samples=2000)),
+            ('频谱图', 'chart-rx-spectrum', self.viz.plot_spectrum(noisy_signal, sample_rate, title='RX 频谱')),
+            ('星座图', 'chart-rx-const', self.viz.plot_constellation(noisy_signal, title='RX 星座图', downsample=8)),
+            ('瞬时频率', 'chart-rx-freq', self.viz.plot_frequency_deviation(noisy_signal, sample_rate, title='RX 瞬时频率')),
+            ('频率眼图', 'chart-rx-eye', self.viz.plot_frequency_eye_diagram(noisy_signal, sample_rate, samples_per_symbol, title='RX 频率眼图', num_traces=80)),
+        ]
+
+        # 公共图表 (比特流、时频谱图)
+        common_charts = [
+            ('TX 比特流', 'chart-bits', self.viz.plot_bits(bits, title='TX 数据包比特流')),
+            ('时频谱图', 'chart-spectrogram', self.viz.plot_spectrogram(iq_signal, sample_rate, title='TX 时频谱图')),
+        ]
+
+        # 生成 TX 图表 HTML
+        tx_html = []
+        for title, div_id, fig in tx_charts:
+            fig.update_layout(height=260, margin=dict(l=50, r=20, t=40, b=40))
             chart_div = _fig_to_html_div(fig, div_id)
-            charts_html.append(f'''
-            <div class="chart-section">
-                <h2>{title}</h2>
-                <div class="chart-container">{chart_div}</div>
+            tx_html.append(f'''<div class="chart-item">
+                <div class="chart-label">{title}</div>
+                <div class="chart-content">{chart_div}</div>
             </div>''')
 
-        html = self._charts_template('\n'.join(charts_html))
+        # 生成 RX 图表 HTML
+        rx_html = []
+        for title, div_id, fig in rx_charts:
+            fig.update_layout(height=260, margin=dict(l=50, r=20, t=40, b=40))
+            chart_div = _fig_to_html_div(fig, div_id)
+            rx_html.append(f'''<div class="chart-item">
+                <div class="chart-label">{title}</div>
+                <div class="chart-content">{chart_div}</div>
+            </div>''')
+
+        # 生成公共图表 HTML
+        common_html = []
+        for title, div_id, fig in common_charts:
+            fig.update_layout(height=300, margin=dict(l=50, r=20, t=40, b=40))
+            chart_div = _fig_to_html_div(fig, div_id)
+            common_html.append(f'''<div class="chart-section-full">
+                <h3>{title}</h3>
+                <div class="chart-content">{chart_div}</div>
+            </div>''')
+
+        html = self._charts_template(
+            '\n'.join(tx_html),
+            '\n'.join(rx_html),
+            '\n'.join(common_html),
+            results.get('channel', {})
+        )
 
         with open(os.path.join(self.output_dir, 'charts.html'), 'w', encoding='utf-8') as f:
             f.write(html)
@@ -248,6 +288,9 @@ class ReportGenerator:
         .chart-card .chart-title {{ padding: 10px 15px; font-size: 0.85em; font-weight: 600; color: #333; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }}
         .chart-card .chart-title a {{ font-size: 0.8em; color: #667eea; text-decoration: none; }}
         .chart-card .chart-content {{ padding: 8px; }}
+        .source-tag {{ display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.7em; font-weight: bold; margin-right: 6px; }}
+        .source-tag.tx {{ background: #52c41a; color: white; }}
+        .source-tag.rx {{ background: #1890ff; color: white; }}
         .chart-card.dark {{ background: #000000; }}
         .chart-card.dark .chart-title {{ background: #000000; color: #FFFF00; border-bottom: 1px solid #404040; }}
         .chart-card.dark .chart-title a {{ color: #00FFFF; }}
@@ -300,12 +343,12 @@ class ReportGenerator:
             </div>
         </div>
         <div class="charts-panel">
-            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title">IQ 时域波形<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-iq"></div></div></div>
-            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title">频谱图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-spectrum"></div></div></div>
-            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title">星座图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-const"></div></div></div>
-            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title">瞬时频率<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-freq"></div></div></div>
-            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title">频率眼图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-eye"></div></div></div>
-            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title">RF 测试仪表盘</div><div class="chart-content"><div id="chart-rf-panel"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag tx">TX</span> IQ 时域波形<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-iq"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag tx">TX</span> 频谱图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-spectrum"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag rx">RX</span> 星座图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-const"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag tx">TX</span> 瞬时频率<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-freq"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag tx">TX</span> 频率眼图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-eye"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title"><span class="source-tag tx">TX</span> RF 测试仪表盘</div><div class="chart-content"><div id="chart-rf-panel"></div></div></div>
             <div class="data-compare">
                 <h3>Payload 数据对比</h3>
                 <div class="payload-grid">
@@ -335,8 +378,11 @@ class ReportGenerator:
 </body>
 </html>'''
 
-    def _charts_template(self, charts_content):
-        """图表页面模板"""
+    def _charts_template(self, tx_charts, rx_charts, common_charts, channel_info):
+        """图表页面模板 - TX → 信道 → RX 布局"""
+        snr_db = channel_info.get('snr_db', 'N/A')
+        freq_offset = channel_info.get('freq_offset_khz', 0)
+
         return f'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -346,24 +392,113 @@ class ReportGenerator:
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     <style>
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; min-height: 100vh; }}
-        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; }}
-        .header h1 {{ font-size: 2em; margin-bottom: 10px; }}
-        .header p {{ opacity: 0.9; }}
-        .nav {{ background: white; padding: 15px 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 100; }}
-        .nav a {{ color: #667eea; text-decoration: none; margin-right: 20px; font-weight: 500; }}
-        .nav a:hover {{ text-decoration: underline; }}
-        .container {{ max-width: 1400px; margin: 0 auto; padding: 30px; }}
-        .chart-section {{ background: white; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); margin-bottom: 30px; overflow: hidden; }}
-        .chart-section h2 {{ background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 15px 25px; font-size: 1.2em; }}
-        .chart-container {{ padding: 20px; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; min-height: 100vh; color: #fff; }}
+        .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px 30px; text-align: center; }}
+        .header h1 {{ font-size: 1.8em; margin-bottom: 5px; }}
+        .header p {{ opacity: 0.9; font-size: 0.95em; }}
+        .nav {{ background: #16213e; padding: 12px 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.3); position: sticky; top: 0; z-index: 100; }}
+        .nav a {{ color: #00d4ff; text-decoration: none; margin-right: 25px; font-weight: 500; transition: color 0.2s; }}
+        .nav a:hover {{ color: #fff; }}
+
+        /* 主布局: 三列 TX | 信道 | RX */
+        .main-layout {{ display: grid; grid-template-columns: 1fr 120px 1fr; gap: 0; padding: 20px; max-width: 1800px; margin: 0 auto; }}
+
+        /* TX/RX 列 */
+        .signal-column {{ background: #0f0f23; border-radius: 12px; padding: 15px; }}
+        .signal-column.tx {{ border: 2px solid #52c41a; }}
+        .signal-column.rx {{ border: 2px solid #1890ff; }}
+        .column-header {{ text-align: center; padding: 10px; margin-bottom: 15px; border-radius: 8px; font-weight: bold; font-size: 1.1em; }}
+        .column-header.tx {{ background: linear-gradient(135deg, #52c41a 0%, #389e0d 100%); }}
+        .column-header.rx {{ background: linear-gradient(135deg, #1890ff 0%, #096dd9 100%); }}
+
+        /* 信道列 */
+        .channel-column {{ display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px 10px; }}
+        .channel-arrow {{ font-size: 2em; color: #666; margin: 10px 0; }}
+        .channel-box {{ background: #16213e; border: 2px solid #fa8c16; border-radius: 10px; padding: 15px 10px; text-align: center; width: 100%; }}
+        .channel-box h4 {{ color: #fa8c16; font-size: 0.85em; margin-bottom: 10px; }}
+        .channel-box .param {{ font-size: 0.8em; color: #aaa; margin: 5px 0; }}
+        .channel-box .value {{ color: #fff; font-weight: bold; }}
+
+        /* 图表项 */
+        .chart-item {{ background: #000; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }}
+        .chart-label {{ background: #1a1a2e; color: #888; font-size: 0.8em; padding: 8px 12px; border-bottom: 1px solid #333; }}
+        .chart-content {{ padding: 5px; }}
+
+        /* 底部公共图表 */
+        .common-section {{ max-width: 1800px; margin: 20px auto; padding: 0 20px; }}
+        .chart-section-full {{ background: #0f0f23; border-radius: 12px; margin-bottom: 15px; overflow: hidden; border: 1px solid #333; }}
+        .chart-section-full h3 {{ background: #16213e; color: #00d4ff; padding: 12px 20px; font-size: 0.95em; }}
+        .chart-section-full .chart-content {{ padding: 10px; background: #000; }}
+
         .footer {{ text-align: center; padding: 30px; color: #666; }}
+
+        /* 数据流指示 */
+        .flow-indicator {{ display: flex; align-items: center; justify-content: center; margin: 20px 0; }}
+        .flow-step {{ display: flex; align-items: center; }}
+        .flow-step .label {{ background: #16213e; padding: 8px 16px; border-radius: 20px; font-size: 0.85em; }}
+        .flow-step .label.tx {{ border: 1px solid #52c41a; color: #52c41a; }}
+        .flow-step .label.channel {{ border: 1px solid #fa8c16; color: #fa8c16; }}
+        .flow-step .label.rx {{ border: 1px solid #1890ff; color: #1890ff; }}
+        .flow-arrow {{ color: #444; margin: 0 10px; font-size: 1.2em; }}
+
+        @media (max-width: 1200px) {{
+            .main-layout {{ grid-template-columns: 1fr; gap: 20px; }}
+            .channel-column {{ flex-direction: row; padding: 15px; }}
+            .channel-arrow {{ transform: rotate(90deg); }}
+        }}
     </style>
 </head>
 <body>
-    <div class="header"><h1>BLE Studio - 信号图表</h1><p>BLE 基带信号可视化分析</p></div>
-    <div class="nav"><a href="index.html">首页</a><a href="report.html">仿真结果</a><a href="charts.html">信号图表</a></div>
-    <div class="container">{charts_content}</div>
+    <div class="header">
+        <h1>BLE Studio - 信号分析</h1>
+        <p>TX → 信道模型 → RX 数据流对比</p>
+    </div>
+    <div class="nav">
+        <a href="index.html">首页</a>
+        <a href="report.html">仿真结果</a>
+        <a href="charts.html">信号图表</a>
+    </div>
+
+    <!-- 数据流指示器 -->
+    <div class="flow-indicator">
+        <div class="flow-step"><span class="label tx">BLE TX (理想信号)</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="label channel">信道模型</span></div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-step"><span class="label rx">BLE RX (损伤信号)</span></div>
+    </div>
+
+    <!-- 主布局: TX | 信道 | RX -->
+    <div class="main-layout">
+        <!-- TX 列 -->
+        <div class="signal-column tx">
+            <div class="column-header tx">📡 TX 发送端</div>
+            {tx_charts}
+        </div>
+
+        <!-- 信道列 -->
+        <div class="channel-column">
+            <div class="channel-arrow">→</div>
+            <div class="channel-box">
+                <h4>信道模型</h4>
+                <div class="param">SNR: <span class="value">{snr_db} dB</span></div>
+                <div class="param">频偏: <span class="value">{freq_offset} kHz</span></div>
+            </div>
+            <div class="channel-arrow">→</div>
+        </div>
+
+        <!-- RX 列 -->
+        <div class="signal-column rx">
+            <div class="column-header rx">📻 RX 接收端</div>
+            {rx_charts}
+        </div>
+    </div>
+
+    <!-- 公共图表 -->
+    <div class="common-section">
+        {common_charts}
+    </div>
+
     <div class="footer"><p>BLE Studio - BLE 基带算法仿真平台</p></div>
 </body>
 </html>'''

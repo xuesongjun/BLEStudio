@@ -691,13 +691,15 @@ class BLEVisualizer:
             'delta_f2_pass': False, 'delta_f1_pass': False, 'ratio_pass': False,
         }
 
-    def plot_rf_metrics_panel(self, metrics: dict, title: str = 'RF 测试指标') -> go.Figure:
+    def plot_rf_metrics_panel(self, metrics: dict, title: str = 'RF 测试指标',
+                                 payload_type: str = 'PRBS9') -> go.Figure:
         """
         绘制 RF 测试仪表盘 (类似蓝牙测试仪显示)
 
         Args:
             metrics: RF 测试指标字典 (来自 calculate_rf_metrics)
             title: 图表标题
+            payload_type: 负载类型 (如 'PRBS9', 'PATTERN_10101010' 等)
 
         Returns:
             Plotly Figure 对象
@@ -768,7 +770,7 @@ class BLEVisualizer:
         ]
 
         right_values = [
-            'PRBS9',
+            payload_type,
             f"{metrics.get('p_peak_dbm', -100):.1f} dBm",
             f"{metrics.get('delta_f1_max', 0):.1f} kHz",
             f"{metrics.get('delta_f2_max', 0):.1f} kHz",

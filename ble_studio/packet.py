@@ -695,6 +695,7 @@ class RFTestConfig:
     payload_length: int = 37                  # 负载长度 (0-255)
     access_address: int = 0x71764129          # DTM 默认接入地址
     crc_init: int = 0x555555                  # CRC 初始值
+    whitening: bool = False                   # 是否启用白化 (DTM 默认关闭)
 
 
 class RFTestPacket(BLEPacket):
@@ -725,6 +726,41 @@ class RFTestPacket(BLEPacket):
 
         super().__init__(packet_config)
         self._test_payload = payload
+
+    def generate(self) -> np.ndarray:
+        """生成完整的 RF Test 数据包 (比特流) - 可配置白化"""
+        config = self.config
+
+        # 1. 前导码
+        if config.phy_mode == BLEPhyMode.LE_2M:
+            preamble = self.PREAMBLE_2M.copy()
+        else:
+            preamble = self.PREAMBLE_1M.copy()
+
+        # 2. 接入地址 (32 bits, LSB first)
+        access_addr_bits = self._int_to_bits(config.access_address, 32)
+
+        # 3. PDU
+        pdu = self.generate_pdu()
+        pdu_bits = self._bytes_to_bits(pdu)
+
+        # 4. CRC (24 bits)
+        crc = self._calculate_crc(pdu)
+        crc_bits = self._int_to_bits(crc, 24)
+
+        # 5. 组合 PDU + CRC (根据配置决定是否白化)
+        data_bits = np.concatenate([pdu_bits, crc_bits])
+        if self.test_config.whitening:
+            data_bits = self._apply_whitening(data_bits, config.channel)
+
+        # 6. 组合完整数据包
+        packet_bits = np.concatenate([
+            preamble,
+            access_addr_bits,
+            data_bits
+        ])
+
+        return packet_bits
 
     def generate_pdu(self) -> bytes:
         """生成 DTM PDU"""
@@ -780,7 +816,8 @@ def create_test_packet(
     payload_length: int = 37,
     channel: int = 0,
     phy_mode: BLEPhyMode = BLEPhyMode.LE_1M,
-    access_address: int = 0x71764129
+    access_address: int = 0x71764129,
+    whitening: bool = False
 ) -> RFTestPacket:
     """
     创建 RF Test 测试数据包的便捷函数
@@ -791,6 +828,7 @@ def create_test_packet(
         channel: 测试信道 (0-39)
         phy_mode: PHY 模式
         access_address: 接入地址 (默认 DTM 地址)
+        whitening: 是否启用白化 (默认关闭)
 
     Returns:
         RFTestPacket 对象
@@ -813,6 +851,7 @@ def create_test_packet(
         channel=channel,
         payload_type=payload_type,
         payload_length=payload_length,
-        access_address=access_address
+        access_address=access_address,
+        whitening=whitening
     )
     return RFTestPacket(config)

@@ -16,6 +16,7 @@ class DemodulatorConfig:
     sample_rate: float = 8e6          # 采样率 (Hz)
     access_address: int = 0x8E89BED6  # 接入地址
     channel: int = 37                  # 信道号
+    whitening: bool = True             # 是否启用去白化 (默认开启)
 
 
 @dataclass
@@ -292,9 +293,12 @@ class BLEDemodulator:
                 timing_offset=timing_offset
             )
 
-        # 9. 去白化
+        # 9. 去白化 (根据配置决定)
         data_bits = bits[data_start:]
-        dewhitened_bits = self._remove_whitening(data_bits, config.channel)
+        if config.whitening:
+            dewhitened_bits = self._remove_whitening(data_bits, config.channel)
+        else:
+            dewhitened_bits = data_bits  # 不去白化
 
         # 10. 解析 PDU
         data_bytes = self._bits_to_bytes(dewhitened_bits)
