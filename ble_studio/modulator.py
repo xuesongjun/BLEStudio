@@ -1,11 +1,12 @@
 """
 BLE GFSK 调制器
-实现 BLE 基带信号调制
+实现 BLE 基带信号调制 (兼容 MATLAB Bluetooth Toolbox)
 """
 
 import numpy as np
 from typing import Optional
 from dataclasses import dataclass
+from scipy.special import erf
 from .packet import BLEPhyMode
 
 
@@ -20,7 +21,7 @@ class ModulatorConfig:
 
 
 class BLEModulator:
-    """BLE GFSK 调制器"""
+    """BLE GFSK 调制器 (MATLAB 兼容实现)"""
 
     def __init__(self, config: Optional[ModulatorConfig] = None):
         self.config = config or ModulatorConfig()
@@ -42,36 +43,67 @@ class BLEModulator:
         # 频偏
         self.freq_deviation = config.modulation_index * self.symbol_rate / 2
 
-        # 生成高斯滤波器
-        self._generate_gaussian_filter()
+        # 生成高斯频率脉冲
+        self._generate_gaussian_pulse()
 
-    def _generate_gaussian_filter(self):
-        """生成高斯滤波器"""
+    @staticmethod
+    def _qfunc(t: np.ndarray) -> np.ndarray:
+        """Q 函数: Q(t) = 0.5 * (1 - erf(t / sqrt(2)))"""
+        return 0.5 * (1 - erf(t / np.sqrt(2)))
+
+    def _generate_gaussian_pulse(self):
+        """
+        生成高斯频率脉冲 (MATLAB bleWaveformGenerator 兼容)
+
+        使用 Q 函数生成精确的高斯频率脉冲，确保相位变化正确
+        MATLAB 默认 PulseLength = 1，这样才能满足 BLE RF 测试指标:
+        - ΔF1avg (01010101 模式): 225-275 kHz
+        - ΔF2max (11110000 模式): >= 185 kHz
+        """
         config = self.config
+        N = self.samples_per_symbol
+        BT = config.bt
 
-        # 滤波器长度 (符号数)
-        filter_span = 4
-        filter_len = filter_span * self.samples_per_symbol + 1
+        # 脉冲跨度 (符号数) - MATLAB 默认 PulseLength = 1
+        # 使用 L=1 才能满足 BLE RF 测试指标 (ΔF1avg 225-275 kHz)
+        L = 1
+
+        # 使用高过采样率计算精确脉冲
+        min_os_ratio = 64
+        R_up = max(1, int(np.ceil(min_os_ratio / N)))
+
+        tSym = 1.0  # 归一化符号周期
+        Ts = tSym / (N * R_up)
+        Offset = Ts / 2
 
         # 时间轴
-        t = np.linspace(
-            -filter_span / 2,
-            filter_span / 2,
-            filter_len
-        )
+        num_samples = L * N * R_up
+        t = np.arange(num_samples) * Ts + Offset
+        t = t - tSym * (L / 2)  # 中心对齐
 
-        # 高斯滤波器脉冲响应
-        # h(t) = sqrt(2*pi/ln(2)) * BT * exp(-2*(pi*BT*t)^2 / ln(2))
-        alpha = np.sqrt(2 * np.pi / np.log(2)) * config.bt
-        self.gaussian_filter = alpha * np.exp(
-            -2 * (np.pi * config.bt * t) ** 2 / np.log(2)
-        )
-        # 归一化
-        self.gaussian_filter /= np.sum(self.gaussian_filter)
+        # 高斯频率脉冲 g(t) 使用 Q 函数
+        K = 2 * np.pi * BT / np.sqrt(np.log(2))
+        g = (1 / (2 * tSym)) * (self._qfunc(K * (t - tSym / 2)) -
+                                 self._qfunc(K * (t + tSym / 2)))
+
+        # 积分得到相位脉冲
+        q = Ts * np.cumsum(g)
+
+        # 归一化: 使得单个符号的相位变化 = 0.5 (对于 h=1)
+        # 对于 BLE h=0.5, 每符号相位变化 = h * pi = pi/2
+        if q[-1] != 0:
+            g = g * 0.5 / q[-1]
+
+        # 下采样到目标采样率
+        g_reshaped = g[:num_samples // R_up * R_up].reshape(-1, R_up)
+        self.freq_pulse = np.mean(g_reshaped, axis=1) * R_up
+
+        # 归一化滤波器
+        self.freq_pulse = self.freq_pulse / np.sum(self.freq_pulse)
 
     def modulate(self, bits: np.ndarray) -> np.ndarray:
         """
-        GFSK 调制
+        GFSK 调制 (MATLAB 兼容)
 
         Args:
             bits: 输入比特流 (0/1)
@@ -80,29 +112,32 @@ class BLEModulator:
             IQ 复基带信号
         """
         config = self.config
+        N = self.samples_per_symbol
+        h = config.modulation_index
 
-        # 1. NRZ 编码 (0 -> -1, 1 -> +1)
-        nrz = 2 * bits.astype(np.float64) - 1
+        # NRZ 编码: 0 -> -1, 1 -> +1
+        symbols = 2 * bits.astype(np.float64) - 1
 
-        # 2. 上采样 (使用阶梯信号而非脉冲)
-        # 每个符号重复 samples_per_symbol 次
-        upsampled = np.repeat(nrz, self.samples_per_symbol)
+        # 上采样 (零插入)
+        upsampled = np.zeros(len(symbols) * N)
+        upsampled[::N] = symbols
 
-        # 3. 高斯滤波 (平滑频率过渡)
-        filtered = np.convolve(upsampled, self.gaussian_filter, mode='same')
+        # 频率脉冲成形
+        # 使用 'same' 模式保持输出长度，自动处理滤波器延迟
+        freq_shaped = np.convolve(upsampled, self.freq_pulse, mode='same')
 
-        # 4. 频率调制 (CPM - 连续相位调制)
-        # 瞬时频率 = freq_deviation * filtered
-        # 相位 = 2*pi * integral(freq) / sample_rate
-        freq_signal = self.freq_deviation * filtered
-        phase = 2 * np.pi * np.cumsum(freq_signal) / config.sample_rate
+        # 相位积分
+        # 每符号相位变化 = h * pi * symbol
+        # 相位增量 = h * pi * freq_shaped (因为 freq_pulse 归一化到 1)
+        phase_inc = h * np.pi * freq_shaped
+        phase = np.cumsum(phase_inc)
 
-        # 5. 添加中心频率偏移
+        # 添加中心频率偏移
         if config.center_freq != 0:
             t = np.arange(len(phase)) / config.sample_rate
             phase += 2 * np.pi * config.center_freq * t
 
-        # 6. 生成 IQ 信号 (恒包络)
+        # 生成 IQ 信号
         iq_signal = np.exp(1j * phase)
 
         return iq_signal
@@ -118,67 +153,3 @@ class BLEModulator:
             IQ 复基带信号
         """
         return self.modulate(packet_bits)
-
-    def add_noise(self, signal: np.ndarray, snr_db: float) -> np.ndarray:
-        """
-        添加 AWGN 噪声
-
-        Args:
-            signal: 输入信号
-            snr_db: 信噪比 (dB)
-
-        Returns:
-            加噪信号
-        """
-        # 信号功率
-        signal_power = np.mean(np.abs(signal) ** 2)
-
-        # 噪声功率
-        noise_power = signal_power / (10 ** (snr_db / 10))
-
-        # 生成复高斯噪声
-        noise = np.sqrt(noise_power / 2) * (
-            np.random.randn(len(signal)) + 1j * np.random.randn(len(signal))
-        )
-
-        return signal + noise
-
-    def add_frequency_offset(self, signal: np.ndarray, freq_offset: float) -> np.ndarray:
-        """
-        添加载波频偏
-
-        Args:
-            signal: 输入信号
-            freq_offset: 频率偏移 (Hz)
-
-        Returns:
-            带频偏的信号
-        """
-        t = np.arange(len(signal)) / self.config.sample_rate
-        return signal * np.exp(1j * 2 * np.pi * freq_offset * t)
-
-    def add_timing_offset(self, signal: np.ndarray, timing_offset: float) -> np.ndarray:
-        """
-        添加定时偏移 (通过插值实现)
-
-        Args:
-            signal: 输入信号
-            timing_offset: 定时偏移 (采样点数, 可以是小数)
-
-        Returns:
-            带定时偏移的信号
-        """
-        from scipy import interpolate
-
-        x_orig = np.arange(len(signal))
-        x_new = x_orig - timing_offset
-
-        # 使用三次样条插值
-        interp_real = interpolate.interp1d(
-            x_orig, signal.real, kind='cubic', fill_value='extrapolate'
-        )
-        interp_imag = interpolate.interp1d(
-            x_orig, signal.imag, kind='cubic', fill_value='extrapolate'
-        )
-
-        return interp_real(x_new) + 1j * interp_imag(x_new)

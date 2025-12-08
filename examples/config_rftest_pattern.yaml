@@ -29,7 +29,7 @@ modulation:
 
 # 信道参数
 channel:
-  snr_db: 30
+  snr_db: inf
   freq_offset: 0
 
 # 输出配置

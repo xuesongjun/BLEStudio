@@ -586,15 +586,29 @@ class BLEVisualizer:
 
     def calculate_rf_metrics(self, signal: np.ndarray, sample_rate: float,
                              samples_per_symbol: int = 8,
-                             symbol_rate: float = 1e6) -> dict:
+                             symbol_rate: float = 1e6,
+                             payload_type: str = 'PRBS9') -> dict:
         """
-        计算 BLE RF 测试指标 (类似蓝牙测试仪)
+        计算 BLE RF 测试指标 (符合 BLE RF-PHY Test Suite 规范)
+
+        根据 BLE RF-PHY Test Specification:
+        - ΔF1: 使用 0x0F (11110000) payload, 测量相对于序列中心频率的偏差
+               ΔF1_max = 第2,3,6,7位相对于f1_ccf的平均偏差
+               ΔF1_avg = 所有ΔF1_max的平均值
+               要求: 225 kHz ≤ ΔF1avg ≤ 275 kHz (1M PHY)
+        - ΔF2: 使用 0x55 (10101010) payload, 测量每个位的峰值频率偏差
+               ΔF2_max = 每个位的峰值频率相对于f2_ccf的偏差
+               ΔF2_avg = 所有ΔF2_max的平均值 = avg_one - avg_zero
+               要求: ΔF2 ≥ 185 kHz, ΔF2/ΔF1 ≥ 0.8
+        - ICFT: 在前导码上测量初始载波频率偏移
+               要求: |ICFT| ≤ 150 kHz
 
         Args:
             signal: 复数 IQ 信号
             sample_rate: 采样率 (Hz)
             samples_per_symbol: 每符号采样数
             symbol_rate: 符号率 (Hz)
+            payload_type: 负载类型 (PRBS9, PATTERN_11110000, PATTERN_10101010 等)
 
         Returns:
             RF 测试指标字典
@@ -603,82 +617,176 @@ class BLEVisualizer:
         phase = np.unwrap(np.angle(signal))
         freq_inst = np.diff(phase) * sample_rate / (2 * np.pi)
 
-        # 跳过前导码部分 (约 8 个符号)
-        skip_samples = 10 * samples_per_symbol
-        freq_data = freq_inst[skip_samples:] if len(freq_inst) > skip_samples else freq_inst
-
-        # 符号采样点 (在符号中间采样)
-        symbol_samples = freq_data[samples_per_symbol // 2::samples_per_symbol]
-
-        if len(symbol_samples) < 10:
+        if len(freq_inst) < 20 * samples_per_symbol:
             return self._empty_rf_metrics()
 
-        # 分离 '1' 和 '0' 符号
-        threshold = np.median(symbol_samples)
-        freq_ones = symbol_samples[symbol_samples > threshold]
-        freq_zeros = symbol_samples[symbol_samples < threshold]
+        # ========== 1. ICFT: 初始载波频率偏移 (在前导码上测量) ==========
+        # 前导码: 8 bits (LE 1M), 积分8位的平均频率
+        # 前导码是 10101010, 理想情况下积分为0
+        preamble_samples = 8 * samples_per_symbol
+        preamble_freq = freq_inst[:preamble_samples]
+        icft = np.mean(preamble_freq)  # 理想情况下应该为 0
 
-        if len(freq_ones) < 2 or len(freq_zeros) < 2:
+        # ========== 2. 提取 payload 区域的瞬时频率 ==========
+        # 跳过: 前导码(8bit) + 接入地址(32bit) + PDU头(16bit) = 56 bits
+        header_bits = 8 + 32 + 16  # 56 bits
+        payload_start = header_bits * samples_per_symbol
+        freq_payload = freq_inst[payload_start:] if len(freq_inst) > payload_start else freq_inst
+
+        if len(freq_payload) < 16 * samples_per_symbol:
             return self._empty_rf_metrics()
 
-        # ΔF1: 单个 '1' 和 '0' 之间的频率差 (相邻符号)
-        delta_f1_values = []
-        for i in range(len(symbol_samples) - 1):
-            if symbol_samples[i] > threshold and symbol_samples[i + 1] < threshold:
-                delta_f1_values.append(abs(symbol_samples[i] - symbol_samples[i + 1]))
-            elif symbol_samples[i] < threshold and symbol_samples[i + 1] > threshold:
-                delta_f1_values.append(abs(symbol_samples[i + 1] - symbol_samples[i]))
+        # ========== 3. 计算每个符号的频率特征 ==========
+        symbol_freq_peak = []      # 峰值频率 (带符号)
+        symbol_freq_abs_mean = []  # 绝对值平均 (用于 ΔF1)
+        symbol_freq_mid_avg = []   # 符号中间平均 (用于 ΔF2 稳态)
+        for i in range(len(freq_payload) // samples_per_symbol):
+            start = i * samples_per_symbol
+            end = start + samples_per_symbol
+            symbol_data = freq_payload[start:end]
+            # 峰值 (带符号): 用于判断 1/0
+            peak_idx = np.argmax(np.abs(symbol_data))
+            symbol_freq_peak.append(symbol_data[peak_idx])
+            # 绝对值平均: 用于 ΔF1avg (BLE 标准定义)
+            symbol_freq_abs_mean.append(np.mean(np.abs(symbol_data)))
+            # 中间区域平均: 用于 ΔF2 稳态测量
+            mid_start = start + samples_per_symbol // 4
+            mid_end = end - samples_per_symbol // 4
+            symbol_freq_mid_avg.append(np.mean(freq_payload[mid_start:mid_end]))
 
-        # ΔF2: 最大频率偏差 (稳定 '1' 和 '0' 的平均值之差)
-        avg_one = np.mean(freq_ones)
-        avg_zero = np.mean(freq_zeros)
-        delta_f2 = abs(avg_one - avg_zero)
+        symbol_freq_peak = np.array(symbol_freq_peak)
+        symbol_freq_abs_mean = np.array(symbol_freq_abs_mean)
+        symbol_freq_mid_avg = np.array(symbol_freq_mid_avg)
 
-        # 频率漂移 (Frequency Drift)
-        # 计算整个包的频率中心随时间的变化
-        window_size = 10 * samples_per_symbol
-        num_windows = len(freq_data) // window_size
-        if num_windows >= 2:
-            window_means = [np.mean(freq_data[i * window_size:(i + 1) * window_size])
-                           for i in range(num_windows)]
-            freq_drift = max(window_means) - min(window_means)
-            drift_rate = freq_drift / (num_windows * window_size / sample_rate) if num_windows > 1 else 0
+        if len(symbol_freq_peak) < 16:
+            return self._empty_rf_metrics()
+
+        # 分离 '1' 和 '0' 符号 (基于峰值符号)
+        threshold = 0
+        freq_ones = symbol_freq_peak[symbol_freq_peak > threshold]
+        freq_zeros = symbol_freq_peak[symbol_freq_peak < threshold]
+
+        avg_one = np.mean(freq_ones) if len(freq_ones) > 0 else 0
+        avg_zero = np.mean(freq_zeros) if len(freq_zeros) > 0 else 0
+
+        # ========== 4. ΔF1 计算 (使用 0x55 pattern: 10101010) ==========
+        # BLE 规范: ΔF1avg 是每个符号内瞬时频率绝对值的平均
+        # ΔF1avg 应在 225-275 kHz 范围内
+        # 支持多种 payload_type 格式: 'PATTERN_10101010', '10101010 (0x55)', '0x55' 等
+        payload_upper = payload_type.upper()
+        is_55_pattern = any(p in payload_upper for p in [
+            'PATTERN_10101010', 'PATTERN_01010101',
+            '10101010', '01010101',
+            '0X55', '0XAA'
+        ])
+
+        if is_55_pattern:
+            # 0x55 pattern: ΔF1 = 每个符号瞬时频率绝对值的平均
+            delta_f1_values = symbol_freq_abs_mean.tolist()
         else:
-            freq_drift = 0
-            drift_rate = 0
+            # 非 0x55 pattern: 使用峰值相对于中心的偏移
+            center_freq = (avg_one + avg_zero) / 2
+            delta_f1_values = [abs(peak - center_freq) for peak in symbol_freq_peak]
 
-        # 初始载波频率偏移 (ICFT - Initial Carrier Frequency Tolerance)
-        icft = np.mean(freq_data[:5 * samples_per_symbol]) if len(freq_data) > 5 * samples_per_symbol else 0
+        # ========== 5. ΔF2 计算 (使用 0x0F pattern: 11110000) ==========
+        # BLE 规范: ΔF2 是 11110000 模式下的稳态频率偏差
+        # ΔF2max >= 185 kHz, ΔF2/ΔF1 >= 0.8
+        # 支持多种 payload_type 格式: 'PATTERN_11110000', '11110000 (0xF0)', '0xF0' 等
+        is_0f_pattern = any(p in payload_upper for p in [
+            'PATTERN_11110000', 'PATTERN_00001111',
+            '11110000', '00001111',
+            '0XF0', '0X0F'
+        ])
 
-        # 功率计算 (dBm, 假设 50 欧姆负载, 归一化信号)
-        # P = 10 * log10(V^2 / R / 1mW) = 10 * log10(|signal|^2 / 50 / 0.001)
-        # 对于归一化信号, 假设满幅为 0 dBm 参考
+        delta_f2_values = []
+
+        if is_0f_pattern:
+            # 0x0F pattern: 8-bit 序列分组 (11110000 或 00001111)
+            # ΔF2 是稳态区域 (第2,3,6,7位) 的频率偏差
+            bits_per_sequence = 8
+            num_sequences = len(symbol_freq_peak) // bits_per_sequence
+            for seq_idx in range(num_sequences):
+                seq_start = seq_idx * bits_per_sequence
+                seq_freq = symbol_freq_peak[seq_start:seq_start + bits_per_sequence]
+                if len(seq_freq) == 8:
+                    # 稳态位: 索引 1,2 (1111中间) 和 5,6 (0000中间)
+                    stable_freqs = [seq_freq[i] for i in [1, 2, 5, 6]]
+                    center = (np.mean([seq_freq[1], seq_freq[2]]) +
+                              np.mean([seq_freq[5], seq_freq[6]])) / 2
+                    for sf in stable_freqs:
+                        delta_f2_values.append(abs(sf - center))
+        else:
+            # 通用计算: 使用峰值频率
+            center_freq = (avg_one + avg_zero) / 2
+            for peak in symbol_freq_peak:
+                delta_f2_values.append(abs(peak - center_freq))
+
+        # ========== 6. 稳定调制指标 ==========
+        # ΔF2avg (稳定调制) = |avg_one - avg_zero| / 2
+        # 这是 '1' 和 '0' 相对于中心频率的平均偏移
+        delta_f2_stable = abs(avg_one - avg_zero) / 2
+
+        # ========== 7. 频率漂移 (Carrier Frequency Drift) ==========
+        # 规范: 在 payload 区域内, 每 10-bit (1M) 间隔测量频率
+        # |f0 - fn| ≤ 50 kHz, |fn - fn-5| ≤ 20 kHz (per 50μs)
+        drift_interval_bits = 10  # 1M PHY
+        drift_interval_samples = drift_interval_bits * samples_per_symbol
+        num_drift_points = len(freq_payload) // drift_interval_samples
+
+        drift_freqs = []
+        for i in range(num_drift_points):
+            start = i * drift_interval_samples
+            end = start + drift_interval_samples
+            drift_freqs.append(np.mean(freq_payload[start:end]))
+
+        if len(drift_freqs) >= 2:
+            f0_payload = drift_freqs[0]
+            freq_drift_max = max(abs(f - f0_payload) for f in drift_freqs)
+            # 漂移率
+            drift_rates = [abs(drift_freqs[i+1] - drift_freqs[i])
+                          for i in range(len(drift_freqs) - 1)]
+            drift_rate_max = max(drift_rates) if drift_rates else 0
+        else:
+            freq_drift_max = 0
+            drift_rate_max = 0
+
+        # ========== 8. 功率计算 ==========
         signal_power = np.abs(signal) ** 2
         p_avg_linear = np.mean(signal_power)
         p_peak_linear = np.max(signal_power)
-
-        # 转换为 dBm (假设满幅 1.0 对应 0 dBm)
         p_avg_dbm = 10 * np.log10(p_avg_linear + 1e-10)
         p_peak_dbm = 10 * np.log10(p_peak_linear + 1e-10)
 
+        # ========== 9. 计算最终指标 ==========
+        delta_f1_avg = np.mean(delta_f1_values) / 1e3 if delta_f1_values else 0
+        delta_f1_max = np.max(delta_f1_values) / 1e3 if delta_f1_values else 0
+        delta_f1_min = np.min(delta_f1_values) / 1e3 if delta_f1_values else 0
+        delta_f2_avg = delta_f2_stable / 1e3  # kHz (稳定调制指标)
+        delta_f2_max = np.max(delta_f2_values) / 1e3 if delta_f2_values else delta_f2_avg
+
+        # ΔF2/ΔF1 比值 (规范要求 ≥ 0.8)
+        delta_f2_ratio = delta_f2_avg / delta_f1_avg if delta_f1_avg > 0 else 0
+
         return {
-            'delta_f1_avg': np.mean(delta_f1_values) / 1e3 if delta_f1_values else 0,  # kHz
-            'delta_f1_max': np.max(delta_f1_values) / 1e3 if delta_f1_values else 0,   # kHz
-            'delta_f1_min': np.min(delta_f1_values) / 1e3 if delta_f1_values else 0,   # kHz
-            'delta_f2_avg': delta_f2 / 1e3,  # kHz
-            'delta_f2_max': (np.max(freq_ones) - np.min(freq_zeros)) / 1e3,  # kHz
-            'delta_f2_ratio': delta_f2 / (np.mean(delta_f1_values) if delta_f1_values and np.mean(delta_f1_values) > 0 else 1),
-            'freq_drift': freq_drift / 1e3,  # kHz
-            'drift_rate': drift_rate / 1e3,  # kHz/s -> kHz/ms
+            'delta_f1_avg': delta_f1_avg,  # kHz
+            'delta_f1_max': delta_f1_max,  # kHz
+            'delta_f1_min': delta_f1_min,  # kHz
+            'delta_f2_avg': delta_f2_avg,  # kHz
+            'delta_f2_max': delta_f2_max,  # kHz
+            'delta_f2_ratio': delta_f2_ratio,
+            'freq_drift': freq_drift_max / 1e3,  # kHz
+            'drift_rate': drift_rate_max / 1e3,  # kHz
             'icft': icft / 1e3,  # kHz
-            'p_peak_dbm': p_peak_dbm,  # dBm
-            'p_avg_dbm': p_avg_dbm,  # dBm
+            'p_peak_dbm': p_peak_dbm,
+            'p_avg_dbm': p_avg_dbm,
             'avg_one': avg_one / 1e3,  # kHz
             'avg_zero': avg_zero / 1e3,  # kHz
-            # 判定结果 (BLE 规范要求)
-            'delta_f2_pass': delta_f2 / 1e3 >= 185,  # ΔF2 >= 185 kHz
-            'delta_f1_pass': all(df / 1e3 >= 185 for df in delta_f1_values) if delta_f1_values else False,
-            'ratio_pass': delta_f2 / (np.mean(delta_f1_values) if delta_f1_values and np.mean(delta_f1_values) > 0 else 1) >= 0.8,
+            # 判定结果 (BLE RF-PHY 规范要求, 1M PHY)
+            'delta_f1_pass': 225 <= delta_f1_avg <= 275,  # 225 kHz ≤ ΔF1avg ≤ 275 kHz
+            'delta_f2_pass': delta_f2_avg >= 185,  # ΔF2 ≥ 185 kHz
+            'ratio_pass': delta_f2_ratio >= 0.8,  # ΔF2/ΔF1 ≥ 0.8
+            'icft_pass': abs(icft / 1e3) <= 150,  # |ICFT| ≤ 150 kHz
+            'drift_pass': freq_drift_max / 1e3 <= 50,  # |f0 - fn| ≤ 50 kHz
         }
 
     def _empty_rf_metrics(self) -> dict:
@@ -688,7 +796,8 @@ class BLEVisualizer:
             'delta_f2_avg': 0, 'delta_f2_max': 0, 'delta_f2_ratio': 0,
             'freq_drift': 0, 'drift_rate': 0, 'icft': 0,
             'p_peak_dbm': -100, 'p_avg_dbm': -100, 'avg_one': 0, 'avg_zero': 0,
-            'delta_f2_pass': False, 'delta_f1_pass': False, 'ratio_pass': False,
+            'delta_f1_pass': False, 'delta_f2_pass': False, 'ratio_pass': False,
+            'icft_pass': False, 'drift_pass': False,
         }
 
     def plot_rf_metrics_panel(self, metrics: dict, title: str = 'RF 测试指标',
@@ -763,21 +872,25 @@ class BLEVisualizer:
             'P PEAK',
             'Max ΔF1 max',
             'Max ΔF2 max',
-            'ΔF2 >185 kHz',
-            'ΔF2 / ΔF1',
-            'ICFT',
-            '',
+            'ΔF2 ≥185 kHz',
+            'ΔF2/ΔF1 ≥0.8',
+            'ICFT ≤150 kHz',
+            'Drift ≤50 kHz',
         ]
+
+        # 判定结果格式化
+        def pass_fail(condition):
+            return '✓ PASS' if condition else '✗ FAIL'
 
         right_values = [
             payload_type,
             f"{metrics.get('p_peak_dbm', -100):.1f} dBm",
             f"{metrics.get('delta_f1_max', 0):.1f} kHz",
             f"{metrics.get('delta_f2_max', 0):.1f} kHz",
-            '✓ PASS' if metrics.get('delta_f2_pass', False) else '✗ FAIL',
-            f"{metrics.get('delta_f2_ratio', 0):.2f}",
-            f"{metrics.get('icft', 0):.1f} kHz",
-            '',
+            pass_fail(metrics.get('delta_f2_pass', False)),
+            pass_fail(metrics.get('ratio_pass', False)),
+            pass_fail(metrics.get('icft_pass', False)),
+            pass_fail(metrics.get('drift_pass', False)),
         ]
 
         # 绘制左侧标签和值

@@ -22,10 +22,14 @@ from ble_studio import (
     create_advertising_packet,
     # RF Test
     RFTestPayloadType, create_test_packet,
+    # 信道模型
+    BLEChannel, ChannelConfig, ChannelType,
     # IQ 导入导出
     IQExporter, IQImporter, IQExportConfig, IQImportConfig,
     IQFormat, NumberFormat,
     export_iq_txt, export_iq_verilog, import_iq_txt, import_iq_mat,
+    # 可视化 (用于计算 RF 指标)
+    BLEVisualizer,
 )
 
 
@@ -334,11 +338,20 @@ def run_simulation(config: dict = None):
 
     print(f"[调制] 采样率: {sample_rate/1e6} MHz, IQ长度: {len(iq_signal)}")
 
-    # ========== 4. 添加信道损伤 ==========
-    noisy_signal = modulator.add_noise(iq_signal, snr_db)
-    impaired_signal = modulator.add_frequency_offset(noisy_signal, freq_offset)
-
-    print(f"[信道] SNR: {snr_db} dB, 频偏: {freq_offset/1e3} kHz")
+    # ========== 4. 信道模型: 添加损伤 ==========
+    channel = BLEChannel(ChannelConfig(
+        channel_type=ChannelType.AWGN,
+        sample_rate=sample_rate,
+        snr_db=snr_db if not np.isinf(snr_db) else 100,  # inf -> 100dB (几乎无噪声)
+        frequency_offset=freq_offset,
+    ))
+    # 如果 SNR=inf，bypass 信道 (直接使用理想信号)
+    if np.isinf(snr_db) and freq_offset == 0:
+        impaired_signal = iq_signal.copy()
+        print(f"[信道] Bypass (SNR=inf, freq_offset=0)")
+    else:
+        impaired_signal = channel.apply(iq_signal)
+        print(f"[信道] SNR: {snr_db} dB, 频偏: {freq_offset/1e3} kHz")
 
     # ========== 5. 导出 IQ 数据 (Verilog 仿真) ==========
     if iq_export_cfg.get('enabled', False):
@@ -485,8 +498,21 @@ def run_rf_test(config: dict = None):
 
     # ========== 5. 信道模型: 添加损伤 ==========
     print(f"[信道] SNR: {snr_db} dB, 频偏: {freq_offset/1e3} kHz")
-    noisy_signal = modulator.add_noise(channel_input_signal, snr_db)
-    channel_output_signal = modulator.add_frequency_offset(noisy_signal, freq_offset)
+
+    # 使用信道模型
+    channel = BLEChannel(ChannelConfig(
+        channel_type=ChannelType.AWGN,
+        sample_rate=sample_rate,
+        snr_db=snr_db if not np.isinf(snr_db) else 100,  # inf -> 100dB (几乎无噪声)
+        frequency_offset=freq_offset,
+    ))
+
+    # 如果 SNR=inf 且无频偏，bypass 信道 (直接使用理想信号)
+    if np.isinf(snr_db) and freq_offset == 0:
+        channel_output_signal = channel_input_signal.copy()
+        print(f"[信道] Bypass (SNR=inf, freq_offset=0)")
+    else:
+        channel_output_signal = channel.apply(channel_input_signal)
 
     # ========== 6. 信道出口: 导出 IQ 数据 ==========
     # 导出 TX 理想信号 (信道传输前)
@@ -528,7 +554,37 @@ def run_rf_test(config: dict = None):
         print(f"[RX] Payload 前16字节: {rx_payload[:16].hex()}")
     print(f"[结果] 数据匹配: {'OK' if payload_match else 'FAIL'}")
 
-    # ========== 8. 生成报告 ==========
+    # ========== 8. 计算并打印 RF 指标 ==========
+    viz = BLEVisualizer()
+    rf_metrics = viz.calculate_rf_metrics(
+        signal=channel_output_signal,
+        sample_rate=sample_rate,
+        samples_per_symbol=modulator.samples_per_symbol,
+        payload_type=test_info['payload_type']
+    )
+
+    print()
+    print("[RF 测试指标]")
+    print(f"  ΔF1avg: {rf_metrics['delta_f1_avg']:.1f} kHz (标准: 225-275 kHz)")
+    print(f"  ΔF2avg: {rf_metrics['delta_f2_avg']:.1f} kHz")
+    print(f"  ΔF2max: {rf_metrics['delta_f2_max']:.1f} kHz (标准: >= 185 kHz)")
+    print(f"  ΔF2/ΔF1: {rf_metrics['delta_f2_ratio']:.3f} (标准: >= 0.8)")
+    print(f"  ICFT: {rf_metrics['icft']:.1f} kHz (标准: |ICFT| <= 150 kHz)")
+    print(f"  Freq Drift: {rf_metrics['freq_drift']:.1f} kHz (标准: <= 50 kHz)")
+
+    # 判断是否 PASS
+    payload_upper = test_info['payload_type'].upper()
+    is_55_pattern = any(p in payload_upper for p in ['10101010', '01010101', '0X55', '0XAA'])
+    if is_55_pattern:
+        f1_pass = 225 <= rf_metrics['delta_f1_avg'] <= 275
+        f2_pass = rf_metrics['delta_f2_max'] >= 185
+        ratio_pass = rf_metrics['delta_f2_ratio'] >= 0.8
+        icft_pass = abs(rf_metrics['icft']) <= 150
+        drift_pass = rf_metrics['freq_drift'] <= 50
+        all_pass = f1_pass and f2_pass and ratio_pass and icft_pass and drift_pass
+        print(f"  验证结果: {'ALL PASS' if all_pass else 'FAIL'}")
+
+    # ========== 9. 生成报告 ==========
     if out_cfg.get('html_report', True):
         results = {
             'tx': {

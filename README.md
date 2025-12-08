@@ -108,6 +108,91 @@ pip install -e ".[dev]"
 
 ## 快速开始
 
+### 运行示例
+
+```bash
+# 1. 使用默认配置运行 (RF Test 模式)
+python examples/demo.py
+
+# 2. 使用指定配置文件
+python examples/demo.py examples/config_rftest_pattern.yaml
+```
+
+运行后在 `results/` 目录生成 HTML 报告，浏览器打开 `results/index.html` 查看结果。
+
+### 预置配置文件
+
+| 配置文件 | 用途 | 说明 |
+|---------|------|------|
+| `config.yaml` | 默认配置 | RF Test 模式，PRBS9，SNR=15dB |
+| `config_rftest_pattern.yaml` | 频谱测试 | 0x55 交替模式，高 SNR，关闭白化 |
+| `config_rftest_prbs9.yaml` | DTM 测试 | PRBS9 伪随机序列 |
+| `config_rftest_2m_prbs15.yaml` | 2M PHY 测试 | LE 2M，PRBS15 序列 |
+| `config_advertising.yaml` | 广播包测试 | BLE 广播数据包 |
+| `config_low_snr.yaml` | 灵敏度测试 | 低 SNR 环境 |
+| `config_ideal.yaml` | 理想信道 | 无噪声，无频偏 |
+
+### 常用配置修改
+
+**修改 `examples/config.yaml`：**
+
+```yaml
+# 切换仿真模式
+mode: "rf_test"        # rf_test (DTM) 或 advertising (广播包)
+
+# RF Test 参数
+rf_test:
+  payload_type: "PRBS9"     # PRBS9/PRBS15/PATTERN_10101010/...
+  payload_length: 37        # 0-255 bytes
+  channel: 0                # 0-39
+  whitening: false          # DTM 应关闭
+
+# 信道参数
+channel:
+  snr_db: 15                # 信噪比
+  freq_offset: 50.0e3       # 载波频偏 (Hz)
+
+# 查看 TX 理想信号 (bypass 信道)
+channel:
+  snr_db: 100               # 高 SNR = 几乎无噪声
+  freq_offset: 0            # 无频偏
+```
+
+### 运行示例命令
+
+```bash
+# RF Test - PRBS9 (默认)
+python examples/demo.py
+
+# RF Test - 0x55 交替模式 (频谱测试)
+python examples/demo.py examples/config_rftest_pattern.yaml
+
+# RF Test - 2M PHY PRBS15
+python examples/demo.py examples/config_rftest_2m_prbs15.yaml
+
+# 广播包模式
+python examples/demo.py examples/config_advertising.yaml
+
+# 低 SNR 灵敏度测试
+python examples/demo.py examples/config_low_snr.yaml
+
+# 理想信道 (查看 TX 理想波形)
+python examples/demo.py examples/config_ideal.yaml
+```
+
+### 输出文件
+
+运行后在 `results/` 目录生成：
+
+| 文件 | 说明 |
+|------|------|
+| `index.html` | 首页 (RX 端图表 + 解调结果) |
+| `charts.html` | TX/RX 对比图表页面 |
+| `report.html` | 详细仿真报告 |
+| `iq_tx_ideal.txt/mat` | TX 理想 IQ 数据 |
+| `iq_channel_out.txt/mat` | 信道输出 IQ 数据 |
+
+
 ### 生成 BLE 广播数据包
 
 ```python
@@ -521,92 +606,6 @@ sensitivity = tester.run_sensitivity_test(target_per=0.308)
 print(f"灵敏度: {sensitivity:.2f} dB")
 ```
 
-## 运行示例
-
-### 快速开始
-
-```bash
-# 1. 使用默认配置运行 (RF Test 模式)
-python examples/demo.py
-
-# 2. 使用指定配置文件
-python examples/demo.py examples/config_rftest_pattern.yaml
-```
-
-运行后在 `results/` 目录生成 HTML 报告，浏览器打开 `results/index.html` 查看结果。
-
-### 预置配置文件
-
-| 配置文件 | 用途 | 说明 |
-|---------|------|------|
-| `config.yaml` | 默认配置 | RF Test 模式，PRBS9，SNR=15dB |
-| `config_rftest_pattern.yaml` | 频谱测试 | 0x55 交替模式，高 SNR，关闭白化 |
-| `config_rftest_prbs9.yaml` | DTM 测试 | PRBS9 伪随机序列 |
-| `config_rftest_2m_prbs15.yaml` | 2M PHY 测试 | LE 2M，PRBS15 序列 |
-| `config_advertising.yaml` | 广播包测试 | BLE 广播数据包 |
-| `config_low_snr.yaml` | 灵敏度测试 | 低 SNR 环境 |
-| `config_ideal.yaml` | 理想信道 | 无噪声，无频偏 |
-
-### 常用配置修改
-
-**修改 `examples/config.yaml`：**
-
-```yaml
-# 切换仿真模式
-mode: "rf_test"        # rf_test (DTM) 或 advertising (广播包)
-
-# RF Test 参数
-rf_test:
-  payload_type: "PRBS9"     # PRBS9/PRBS15/PATTERN_10101010/...
-  payload_length: 37        # 0-255 bytes
-  channel: 0                # 0-39
-  whitening: false          # DTM 应关闭
-
-# 信道参数
-channel:
-  snr_db: 15                # 信噪比
-  freq_offset: 50.0e3       # 载波频偏 (Hz)
-
-# 查看 TX 理想信号 (bypass 信道)
-channel:
-  snr_db: 100               # 高 SNR = 几乎无噪声
-  freq_offset: 0            # 无频偏
-```
-
-### 运行示例命令
-
-```bash
-# RF Test - PRBS9 (默认)
-python examples/demo.py
-
-# RF Test - 0x55 交替模式 (频谱测试)
-python examples/demo.py examples/config_rftest_pattern.yaml
-
-# RF Test - 2M PHY PRBS15
-python examples/demo.py examples/config_rftest_2m_prbs15.yaml
-
-# 广播包模式
-python examples/demo.py examples/config_advertising.yaml
-
-# 低 SNR 灵敏度测试
-python examples/demo.py examples/config_low_snr.yaml
-
-# 理想信道 (查看 TX 理想波形)
-python examples/demo.py examples/config_ideal.yaml
-```
-
-### 输出文件
-
-运行后在 `results/` 目录生成：
-
-| 文件 | 说明 |
-|------|------|
-| `index.html` | 首页 (RX 端图表 + 解调结果) |
-| `charts.html` | TX/RX 对比图表页面 |
-| `report.html` | 详细仿真报告 |
-| `iq_tx_ideal.txt/mat` | TX 理想 IQ 数据 |
-| `iq_channel_out.txt/mat` | 信道输出 IQ 数据 |
-
 ### 小工具 (utils/)
 
 `utils/` 目录包含独立的小工具脚本：
@@ -617,6 +616,15 @@ python utils/snr_sweep.py
 
 # IQ 导入导出验证 - 测试 IQ 数据导入导出的正确性
 python utils/iq_corr_test.py
+
+# RF 测试指标验证 - 验证调制器是否符合 BLE RF 标准
+python utils/rf_metrics_test.py
+
+# 调制器分析 - 分析 GFSK 调制器的频率脉冲、相位、IQ 特性
+python utils/modulator_analysis.py
+
+# Visualizer RF 指标测试 - 测试图表中 RF 指标计算的正确性
+python utils/visualizer_rf_test.py
 ```
 
 **SNR 扫描测试输出示例:**
@@ -693,7 +701,10 @@ BLEStudio/
 │   └── config_ideal.yaml          # 理想信道测试配置
 ├── utils/                # 小工具/脚本目录
 │   ├── snr_sweep.py      # SNR 扫描测试 (不同信噪比解调性能)
-│   └── iq_corr_test.py   # IQ 导入导出验证 (相关性测试)
+│   ├── iq_corr_test.py   # IQ 导入导出验证 (相关性测试)
+│   ├── rf_metrics_test.py    # RF 测试指标验证 (ΔF1/ΔF2)
+│   ├── modulator_analysis.py # 调制器分析 (频率脉冲/相位/IQ)
+│   └── visualizer_rf_test.py # Visualizer RF 指标测试
 ├── results/              # 输出目录 (HTML 报告, IQ 数据)
 ├── pyproject.toml        # 项目配置
 ├── requirements.txt      # 依赖列表

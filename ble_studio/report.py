@@ -149,12 +149,15 @@ class ReportGenerator:
         )
         fig_eye.update_layout(height=280, margin=dict(l=50, r=30, t=40, b=40))
 
-        # 计算 RF 测试指标 - 使用 RX 信号
-        rf_metrics = self.viz.calculate_rf_metrics(rx_signal, sample_rate, samples_per_symbol)
-        rf_metrics['payload_type'] = rf_test.get('payload_type', tx.get('test_mode', 'ADV'))
+        # 计算 RF 测试指标 - 使用 RX 信号, 传入 payload_type
+        payload_type = rf_test.get('payload_type', tx.get('test_mode', 'ADV'))
+        rf_metrics = self.viz.calculate_rf_metrics(
+            rx_signal, sample_rate, samples_per_symbol,
+            payload_type=payload_type
+        )
+        rf_metrics['payload_type'] = payload_type
 
         # 新增: RF 测试仪表盘
-        payload_type = rf_metrics.get('payload_type', 'PRBS9')
         fig_rf_panel = self.viz.plot_rf_metrics_panel(rf_metrics, title='RF 测试指标', payload_type=payload_type)
 
         # 转换为 JSON (使用共享函数解码 bdata 格式)
