@@ -56,6 +56,8 @@ output:
   html_report: true
   # 生成图表页面
   html_charts: true
+  # 图表主题: default (白底), dark (深灰底), instrument (黑底亮色)
+  theme: "instrument"
 
 # IQ 数据导出配置 (用于 Verilog 硬件仿真)
 iq_export:

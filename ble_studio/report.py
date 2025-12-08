@@ -90,9 +90,13 @@ def _fig_to_html_div(fig, div_id: str):
 class ReportGenerator:
     """HTML 报告生成器"""
 
-    def __init__(self, output_dir: str = "results"):
+    def __init__(self, output_dir: str = "results", theme: str = 'instrument'):
         self.output_dir = output_dir
-        self.viz = BLEVisualizer()
+        self.theme = theme
+        # 根据主题创建可视化器
+        self.viz = BLEVisualizer(theme=theme)
+        # 默认风格用于其他页面
+        self.viz_default = BLEVisualizer(theme='default')
         os.makedirs(output_dir, exist_ok=True)
 
     def generate_all(self, results: Dict[str, Any],
@@ -244,8 +248,9 @@ class ReportGenerator:
         .chart-card .chart-title {{ padding: 10px 15px; font-size: 0.85em; font-weight: 600; color: #333; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }}
         .chart-card .chart-title a {{ font-size: 0.8em; color: #667eea; text-decoration: none; }}
         .chart-card .chart-content {{ padding: 8px; }}
-        .chart-card.dark {{ background: #1a1a2e; }}
-        .chart-card.dark .chart-title {{ background: #1a1a2e; color: #00aaff; border-bottom: 1px solid #333355; }}
+        .chart-card.dark {{ background: #000000; }}
+        .chart-card.dark .chart-title {{ background: #000000; color: #FFFF00; border-bottom: 1px solid #404040; }}
+        .chart-card.dark .chart-title a {{ color: #00FFFF; }}
         .data-compare {{ grid-column: span 3; background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
         .data-compare h3 {{ font-size: 0.95em; color: #333; margin-bottom: 15px; }}
         .payload-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }}
@@ -295,12 +300,12 @@ class ReportGenerator:
             </div>
         </div>
         <div class="charts-panel">
-            <div class="chart-card"><div class="chart-title">IQ 时域波形<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-iq"></div></div></div>
-            <div class="chart-card"><div class="chart-title">频谱图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-spectrum"></div></div></div>
-            <div class="chart-card"><div class="chart-title">星座图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-const"></div></div></div>
-            <div class="chart-card"><div class="chart-title">瞬时频率<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-freq"></div></div></div>
-            <div class="chart-card"><div class="chart-title">频率眼图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-eye"></div></div></div>
-            <div class="chart-card dark"><div class="chart-title">RF 测试仪表盘</div><div class="chart-content"><div id="chart-rf-panel"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title">IQ 时域波形<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-iq"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title">频谱图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-spectrum"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title">星座图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-const"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title">瞬时频率<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-freq"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title">频率眼图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-eye"></div></div></div>
+            <div class="chart-card{' dark' if self.theme in ('instrument', 'dark') else ''}"><div class="chart-title">RF 测试仪表盘</div><div class="chart-content"><div id="chart-rf-panel"></div></div></div>
             <div class="data-compare">
                 <h3>Payload 数据对比</h3>
                 <div class="payload-grid">

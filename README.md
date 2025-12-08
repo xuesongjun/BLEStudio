@@ -564,6 +564,61 @@ BLEStudio/
 | RF 仪表盘 | `plot_rf_metrics_panel()` | 仿真仪器显示面板 |
 | 仪表板 | `create_dashboard()` | 综合多图显示 |
 
+### 图表颜色自定义
+
+图表支持仪器风格主题（黑底亮色谱线），可在 `ble_studio/visualizer.py` 中修改 `INSTRUMENT_COLORS` 字典来自定义配色：
+
+**可用主题**：
+| 主题    | 说明 |
+|--------|------|
+|  default| 白底，蓝色谱线 |
+|  dark| 深灰底，浅色文字 |
+|  instrument| 纯黑底，亮黄色谱线（仿频谱仪） |
+
+```python
+# ble_studio/visualizer.py 第 26-42 行
+INSTRUMENT_COLORS = {
+    'primary': '#FFFF00',      # 主谱线颜色 (亮黄色)
+    'secondary': '#00FF00',    # 次要颜色 (亮绿色)
+    'tertiary': '#00FFFF',     # 第三颜色 (青色)
+    'quaternary': '#FF8800',   # 第四颜色 (橙色)
+    'trace1': '#FFFF00',       # I 分量颜色
+    'trace2': '#00FF00',       # Q 分量颜色
+    'background': '#000000',   # 页面背景色 (纯黑)
+    'plot_bg': '#000000',      # 绘图区背景色
+    'grid': '#404040',         # 网格线颜色
+    'grid_minor': '#202020',   # 次网格线颜色
+    'text': '#FFFFFF',         # 文字颜色
+    'title': '#FFFF00',        # 标题颜色
+    'axis': '#808080',         # 坐标轴颜色
+    'reference': '#FF0000',    # 参考线颜色
+}
+```
+
+**常用颜色调整:**
+
+| 配置项 | 说明 | 建议值 |
+|--------|------|--------|
+| `trace1` | I 分量波形颜色 | `#FFFF00` (黄), `#00FF00` (绿) |
+| `trace2` | Q 分量波形颜色 | `#00FF00` (绿), `#00FFFF` (青) |
+| `background` | 背景色 | `#000000` (纯黑), `#0a0a0a` (深灰) |
+| `primary` | 主谱线/单波形颜色 | `#FFFF00` (黄), `#00FFFF` (青) |
+
+**使用主题:**
+
+```python
+from ble_studio import BLEVisualizer
+
+# 仪器风格 (黑底亮色)
+viz = BLEVisualizer(theme='instrument')
+
+# 默认风格 (白底)
+viz = BLEVisualizer(theme='default')
+```
+
+修改颜色后重新运行 `python examples/demo.py` 生成报告即可查看效果。
+
+
 ### RF 测试指标说明
 
 | 指标 | 说明 | BLE 规范要求 |

@@ -170,7 +170,7 @@ def import_and_demodulate(config: dict):
             }
         }
 
-        reporter = ReportGenerator(output_dir)
+        reporter = ReportGenerator(output_dir, theme=out_cfg.get('theme', 'instrument'))
         # 使用导入的信号生成图表
         reporter.generate_all(results, signal, signal, None, sample_rate)
 
@@ -293,7 +293,7 @@ def run_simulation(config: dict = None):
             }
         }
 
-        reporter = ReportGenerator(output_dir)
+        reporter = ReportGenerator(output_dir, theme=out_cfg.get('theme', 'instrument'))
         reporter.generate_all(results, iq_signal, impaired_signal, bits, sample_rate)
 
     print(f"输出目录: {output_dir}")
@@ -418,7 +418,7 @@ def run_rf_test(config: dict = None):
             'rf_test': test_info,
         }
 
-        reporter = ReportGenerator(output_dir)
+        reporter = ReportGenerator(output_dir, theme=out_cfg.get('theme', 'instrument'))
         reporter.generate_all(results, iq_signal, impaired_signal, bits, sample_rate)
 
     print("=" * 50)

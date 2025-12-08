@@ -18,9 +18,27 @@ class BLEVisualizer:
         'secondary': '#EF553B',    # 红色
         'tertiary': '#00CC96',     # 绿色
         'quaternary': '#AB63FA',   # 紫色
-        'background': '#FAFAFA',
+        'background': "#FAFAFA",
         'grid': '#E5E5E5',
         'text': '#2D3436',
+    }
+
+    # 仪器风格颜色主题 (黑底黄色谱线 - 仿频谱仪/蓝牙测试仪)
+    INSTRUMENT_COLORS = {
+        'primary': '#FFFF00',      # 纯亮黄色 (主谱线) - 类似示波器/频谱仪
+        'secondary': '#00FF00',    # 亮绿色 (次要)
+        'tertiary': '#00FFFF',     # 青色
+        'quaternary': '#FF8800',   # 橙色
+        'trace1': '#FFFF00',       # 亮黄色 (I 分量)
+        'trace2': '#00FF00',       # 亮绿色 (Q 分量)
+        'background': '#000000',   # 纯黑背景
+        'plot_bg': '#000000',      # 绘图区纯黑
+        'grid': '#404040',         # 深灰网格 (不太亮)
+        'grid_minor': '#202020',   # 更深网格
+        'text': '#FFFFFF',         # 白色文字
+        'title': '#FFFF00',        # 黄色标题
+        'axis': '#808080',         # 坐标轴颜色
+        'reference': '#FF0000',    # 参考线红色
     }
 
     # 默认布局配置
@@ -37,7 +55,7 @@ class BLEVisualizer:
         初始化可视化器
 
         Args:
-            theme: 主题名称 ('default', 'dark')
+            theme: 主题名称 ('default', 'dark', 'instrument')
         """
         self.theme = theme
         if theme == 'dark':
@@ -51,22 +69,36 @@ class BLEVisualizer:
                 'plot_bgcolor': '#252525',
                 'font': dict(color='#E0E0E0'),
             })
+        elif theme == 'instrument':
+            # 仪器风格: 黑底黄色高对比度
+            self.COLORS = self.INSTRUMENT_COLORS.copy()
+            self.DEFAULT_LAYOUT = dict(
+                font=dict(family='Consolas, Monaco, monospace', size=11, color=self.INSTRUMENT_COLORS['text']),
+                paper_bgcolor=self.INSTRUMENT_COLORS['background'],
+                plot_bgcolor=self.INSTRUMENT_COLORS['plot_bg'],
+                margin=dict(l=60, r=40, t=50, b=50),
+                hovermode='x unified',
+            )
 
     def _apply_layout(self, fig: go.Figure, title: str = '',
                       xaxis_title: str = '', yaxis_title: str = '') -> go.Figure:
         """应用默认布局"""
         fig.update_layout(
             **self.DEFAULT_LAYOUT,
-            title=dict(text=title, font=dict(size=16, color=self.COLORS['text'])),
+            title=dict(text=title, font=dict(size=16, color=self.COLORS.get('title', self.COLORS['text']))),
             xaxis=dict(
-                title=xaxis_title,
+                title=dict(text=xaxis_title, font=dict(color=self.COLORS['text'])),
                 gridcolor=self.COLORS['grid'],
                 zerolinecolor=self.COLORS['grid'],
+                linecolor=self.COLORS.get('axis', self.COLORS['grid']),
+                tickfont=dict(color=self.COLORS['text']),
             ),
             yaxis=dict(
-                title=yaxis_title,
+                title=dict(text=yaxis_title, font=dict(color=self.COLORS['text'])),
                 gridcolor=self.COLORS['grid'],
                 zerolinecolor=self.COLORS['grid'],
+                linecolor=self.COLORS.get('axis', self.COLORS['grid']),
+                tickfont=dict(color=self.COLORS['text']),
             ),
         )
         return fig
@@ -158,11 +190,15 @@ class BLEVisualizer:
 
         fig = go.Figure()
 
+        # 根据主题选择颜色
+        i_color = self.COLORS.get('trace1', self.COLORS['primary'])
+        q_color = self.COLORS.get('trace2', self.COLORS['secondary'])
+
         fig.add_trace(go.Scatter(
             x=t, y=signal.real,
             mode='lines',
             name='I (同相)',
-            line=dict(color=self.COLORS['primary'], width=1.5),
+            line=dict(color=i_color, width=1.2 if self.theme != 'instrument' else 1.8),
             hovertemplate='时间: %{x:.2f} μs<br>I: %{y:.4f}<extra></extra>'
         ))
 
@@ -170,13 +206,16 @@ class BLEVisualizer:
             x=t, y=signal.imag,
             mode='lines',
             name='Q (正交)',
-            line=dict(color=self.COLORS['secondary'], width=1.5),
+            line=dict(color=q_color, width=1.2 if self.theme != 'instrument' else 1.8),
             hovertemplate='时间: %{x:.2f} μs<br>Q: %{y:.4f}<extra></extra>'
         ))
 
         self._apply_layout(fig, title, '时间 (μs)', '幅度')
         fig.update_layout(
-            legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+            legend=dict(
+                orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1,
+                font=dict(color=self.COLORS['text'])
+            ),
         )
 
         return fig
@@ -218,14 +257,22 @@ class BLEVisualizer:
 
         fig = go.Figure()
 
+        # 根据主题选择颜色和填充
+        line_color = self.COLORS['primary']
+        line_width = 1.8 if self.theme == 'instrument' else 1.5
+        if self.theme == 'instrument':
+            fill_color = 'rgba(255, 255, 0, 0.1)'  # 半透明亮黄色
+        else:
+            fill_color = 'rgba(99, 110, 250, 0.2)'
+
         fig.add_trace(go.Scatter(
             x=freq_mhz,
             y=psd,
             mode='lines',
             name='功率谱密度',
-            line=dict(color=self.COLORS['primary'], width=1.5),
+            line=dict(color=line_color, width=line_width),
             fill='tozeroy',
-            fillcolor=f'rgba(99, 110, 250, 0.2)',
+            fillcolor=fill_color,
             hovertemplate='频率: %{x:.3f} MHz<br>功率: %{y:.1f} dB<extra></extra>'
         ))
 
@@ -310,14 +357,18 @@ class BLEVisualizer:
 
         fig = go.Figure()
 
+        # 根据主题选择颜色
+        point_color = self.COLORS['primary']
+        point_opacity = 0.7 if self.theme == 'instrument' else 0.5
+
         fig.add_trace(go.Scattergl(
             x=signal.real,
             y=signal.imag,
             mode='markers',
             marker=dict(
                 size=3,
-                color=self.COLORS['primary'],
-                opacity=0.5,
+                color=point_color,
+                opacity=point_opacity,
             ),
             hovertemplate='I: %{x:.4f}<br>Q: %{y:.4f}<extra></extra>'
         ))
@@ -331,11 +382,12 @@ class BLEVisualizer:
 
         # 添加参考圆
         theta = np.linspace(0, 2*np.pi, 100)
+        circle_color = self.COLORS.get('reference', self.COLORS['grid']) if self.theme == 'instrument' else self.COLORS['grid']
         fig.add_trace(go.Scatter(
             x=np.cos(theta),
             y=np.sin(theta),
             mode='lines',
-            line=dict(color=self.COLORS['grid'], width=1, dash='dash'),
+            line=dict(color=circle_color, width=1, dash='dash'),
             showlegend=False,
             hoverinfo='skip'
         ))
@@ -407,11 +459,18 @@ class BLEVisualizer:
 
         fig = go.Figure()
 
+        # 根据主题选择颜色
+        line_color = self.COLORS.get('tertiary', self.COLORS['primary'])
+        line_width = 1.0
+        if self.theme == 'instrument':
+            line_color = self.COLORS['primary']  # 仪器风格用亮黄色
+            line_width = 1.5
+
         fig.add_trace(go.Scatter(
             x=t,
             y=freq_inst / 1e3,  # 转换为 kHz
             mode='lines',
-            line=dict(color=self.COLORS['tertiary'], width=1),
+            line=dict(color=line_color, width=line_width),
             hovertemplate='时间: %{x:.2f} μs<br>频偏: %{y:.1f} kHz<extra></extra>'
         ))
 
@@ -491,6 +550,12 @@ class BLEVisualizer:
 
         t = np.linspace(0, 2, trace_len)
 
+        # 根据主题选择颜色
+        trace_color = self.COLORS['primary']
+        trace_opacity = 0.6 if self.theme == 'instrument' else 0.4
+        trace_width = 1.2 if self.theme == 'instrument' else 0.8
+        ref_color = self.COLORS.get('reference', 'red')
+
         for i in range(num_traces):
             start = i * samples_per_symbol
             trace = freq_inst[start:start + trace_len]
@@ -501,18 +566,18 @@ class BLEVisualizer:
                 x=t,
                 y=trace / 1e3,  # 转换为 kHz
                 mode='lines',
-                line=dict(color=self.COLORS['primary'], width=0.8),
-                opacity=0.4,
+                line=dict(color=trace_color, width=trace_width),
+                opacity=trace_opacity,
                 showlegend=False,
                 hoverinfo='skip'
             ))
 
         # 添加参考线 (±250 kHz for BLE 1M)
-        fig.add_hline(y=250, line=dict(color='red', width=1, dash='dash'),
-                      annotation_text='+250 kHz')
-        fig.add_hline(y=-250, line=dict(color='red', width=1, dash='dash'),
-                      annotation_text='-250 kHz')
-        fig.add_hline(y=0, line=dict(color='gray', width=1, dash='dot'))
+        fig.add_hline(y=250, line=dict(color=ref_color, width=1, dash='dash'),
+                      annotation_text='+250 kHz', annotation_font=dict(color=self.COLORS['text']))
+        fig.add_hline(y=-250, line=dict(color=ref_color, width=1, dash='dash'),
+                      annotation_text='-250 kHz', annotation_font=dict(color=self.COLORS['text']))
+        fig.add_hline(y=0, line=dict(color=self.COLORS['grid'], width=1, dash='dot'))
 
         self._apply_layout(fig, title, '符号周期', '瞬时频率 (kHz)')
         fig.update_yaxes(range=[-400, 400])
@@ -639,11 +704,32 @@ class BLEVisualizer:
         """
         fig = go.Figure()
 
-        # 背景设置为深色 (仿仪器面板)
+        # 根据主题设置颜色
+        if self.theme in ('instrument', 'dark'):
+            bg_color = self.COLORS.get('background', '#1a1a2e')
+            value_color = self.COLORS.get('secondary', '#00ff88')  # 亮绿色
+            label_color = '#888888'
+            separator_color = '#444444'
+            title_color = self.COLORS.get('primary', '#00aaff')
+            line_color = '#333355'
+            pass_color = self.COLORS.get('secondary', '#00ff88')
+            fail_color = self.COLORS.get('reference', '#ff4444')
+        else:
+            # default 主题 - 白底深色文字
+            bg_color = '#ffffff'
+            value_color = '#2D3436'
+            label_color = '#666666'
+            separator_color = '#cccccc'
+            title_color = self.COLORS.get('primary', '#636EFA')
+            line_color = '#e0e0e0'
+            pass_color = '#52c41a'
+            fail_color = '#ff4d4f'
+
+        # 背景设置
         fig.update_layout(
-            paper_bgcolor='#1a1a2e',
-            plot_bgcolor='#1a1a2e',
-            font=dict(family='Consolas, Monaco, monospace', size=12, color='#00ff88'),
+            paper_bgcolor=bg_color,
+            plot_bgcolor=bg_color,
+            font=dict(family='Consolas, Monaco, monospace', size=12, color=value_color),
         )
 
         # 指标数据 - 左侧
@@ -698,23 +784,23 @@ class BLEVisualizer:
             # 标签
             fig.add_annotation(
                 x=0.02, y=y_pos, text=label,
-                font=dict(size=11, color='#888888'),
+                font=dict(size=11, color=label_color),
                 showarrow=False, xanchor='left', yanchor='middle',
                 xref='paper', yref='paper'
             )
             # 分隔符
             fig.add_annotation(
                 x=0.25, y=y_pos, text='—',
-                font=dict(size=11, color='#444444'),
+                font=dict(size=11, color=separator_color),
                 showarrow=False, xanchor='center', yanchor='middle',
                 xref='paper', yref='paper'
             )
             # 值
-            color = '#00ff88'
+            color = value_color
             if 'FAIL' in str(value):
-                color = '#ff4444'
+                color = fail_color
             elif 'PASS' in str(value):
-                color = '#00ff88'
+                color = pass_color
             fig.add_annotation(
                 x=0.28, y=y_pos, text=value,
                 font=dict(size=11, color=color, family='Consolas, Monaco, monospace'),
@@ -730,23 +816,23 @@ class BLEVisualizer:
             # 标签
             fig.add_annotation(
                 x=0.52, y=y_pos, text=label,
-                font=dict(size=11, color='#888888'),
+                font=dict(size=11, color=label_color),
                 showarrow=False, xanchor='left', yanchor='middle',
                 xref='paper', yref='paper'
             )
             # 分隔符
             fig.add_annotation(
                 x=0.75, y=y_pos, text='—',
-                font=dict(size=11, color='#444444'),
+                font=dict(size=11, color=separator_color),
                 showarrow=False, xanchor='center', yanchor='middle',
                 xref='paper', yref='paper'
             )
             # 值
-            color = '#00ff88'
+            color = value_color
             if 'FAIL' in str(value):
-                color = '#ff4444'
+                color = fail_color
             elif 'PASS' in str(value):
-                color = '#00ff88'
+                color = pass_color
             fig.add_annotation(
                 x=0.78, y=y_pos, text=value,
                 font=dict(size=11, color=color, family='Consolas, Monaco, monospace'),
@@ -757,7 +843,7 @@ class BLEVisualizer:
         # 添加标题
         fig.add_annotation(
             x=0.5, y=1.02, text=title,
-            font=dict(size=14, color='#00aaff'),
+            font=dict(size=14, color=title_color),
             showarrow=False, xanchor='center', yanchor='bottom',
             xref='paper', yref='paper'
         )
@@ -765,7 +851,7 @@ class BLEVisualizer:
         # 添加分隔线
         fig.add_shape(
             type='line', x0=0.5, x1=0.5, y0=0.05, y1=0.98,
-            line=dict(color='#333355', width=1),
+            line=dict(color=line_color, width=1),
             xref='paper', yref='paper'
         )
 
