@@ -66,8 +66,9 @@ class IQExporter:
             (I_quantized, Q_quantized) 量化后的 I/Q 数组
         """
         cfg = self.config
-        max_val = 2 ** (cfg.bit_width - 1) - 1  # 有符号最大值
-        min_val = -2 ** (cfg.bit_width - 1)     # 有符号最小值
+        max_val = 2 ** (cfg.bit_width - 1) - 1  # 有符号最大值 (如 2047)
+        min_val = -2 ** (cfg.bit_width - 1)     # 有符号最小值 (如 -2048)
+        full_scale = 2 ** (cfg.bit_width - 1)   # 满量程缩放因子 (如 2048)
 
         # 提取 I/Q 分量
         i_data = signal.real
@@ -77,20 +78,21 @@ class IQExporter:
         if cfg.scale_to_full:
             max_amp = max(np.max(np.abs(i_data)), np.max(np.abs(q_data)))
             if max_amp > 0:
-                scale = max_val / max_amp * 0.95  # 留 5% 余量
+                scale = full_scale / max_amp  # 满量程缩放
             else:
-                scale = max_val
+                scale = full_scale
         else:
             # 假设输入已归一化到 [-1, 1]
-            scale = max_val
+            scale = full_scale
 
         # Q 格式缩放 (如果有小数位)
         if cfg.frac_bits > 0:
             scale = 2 ** cfg.frac_bits
 
-        # 量化
-        i_quant = np.clip(np.round(i_data * scale), min_val, max_val).astype(np.int32)
-        q_quant = np.clip(np.round(q_data * scale), min_val, max_val).astype(np.int32)
+        # 量化: 使用 round 四舍五入 (与 MATLAB 一致)
+        # 先 round 再 clip 确保值在 [-2048, 2047] 范围内
+        i_quant = np.clip(np.round(i_data * scale).astype(np.int32), min_val, max_val)
+        q_quant = np.clip(np.round(q_data * scale).astype(np.int32), min_val, max_val)
 
         return i_quant, q_quant
 
@@ -184,9 +186,9 @@ class IQExporter:
                 else:
                     lines.append(str(q))
 
-        # 写入文件
-        with open(file_path, 'w') as f:
-            f.write('\n'.join(lines))
+        # 写入文件 (使用 Unix 换行符以匹配 MATLAB 格式)
+        with open(file_path, 'w', newline='\n') as f:
+            f.write('\n'.join(lines) + '\n')
 
         return {
             'file': str(file_path),
@@ -267,8 +269,8 @@ class IQExporter:
             packed = (i_u << cfg.bit_width) | q_u
             lines.append(f"{packed:0{num_hex}X}")
 
-        with open(file_path, 'w') as f:
-            f.write('\n'.join(lines))
+        with open(file_path, 'w', newline='\n') as f:
+            f.write('\n'.join(lines) + '\n')
 
         return {
             'file': str(file_path),

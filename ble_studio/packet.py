@@ -310,19 +310,45 @@ class BLEPacket:
         return np.array(bits, dtype=np.uint8)
 
     def _calculate_crc(self, data: bytes, init: int = None) -> int:
-        """计算 BLE CRC24"""
+        """
+        计算 BLE CRC24 (兼容 MATLAB bleWaveformGenerator)
+
+        MATLAB 使用 comm.CRCGenerator:
+        - 多项式: z^24+z^10+z^9+z^6+z^4+z^3+z+1
+        - InitialConditions: 0x555555 (MSB first)
+        - DirectMethod: true
+
+        实现方式:
+        1. 将字节转为比特流 (LSB first per byte)
+        2. 使用 MSB-first 直接方法计算 CRC
+        3. 对 CRC 结果进行 bit reverse
+        """
         if init is None:
             init = self.CRC_INIT_ADV
 
-        crc = init
+        # 将字节转为比特流 (LSB first per byte)
+        bits = []
         for byte in data:
             for i in range(8):
-                bit = (byte >> i) & 1
-                if (crc & 1) ^ bit:
-                    crc = (crc >> 1) ^ 0x65B
-                else:
-                    crc = crc >> 1
-        return crc & 0xFFFFFF
+                bits.append((byte >> i) & 1)
+
+        # MSB-first 直接方法 CRC 计算
+        poly = 0x00065B  # 不含 x^24 项
+        crc = init
+
+        for bit in bits:
+            msb = (crc >> 23) & 1
+            crc = (crc << 1) & 0xFFFFFF
+            if msb ^ bit:
+                crc ^= poly
+
+        # Bit reverse CRC 输出 (MATLAB 兼容)
+        crc_rev = 0
+        for i in range(24):
+            if crc & (1 << i):
+                crc_rev |= (1 << (23 - i))
+
+        return crc_rev
 
     def _get_whitening_sequence(self, channel: int, length: int) -> np.ndarray:
         """生成白化序列"""

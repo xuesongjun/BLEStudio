@@ -171,7 +171,7 @@ class BLEDemodulator:
 
     def _check_crc(self, data: bytes) -> Tuple[bool, int]:
         """
-        检查 CRC
+        检查 CRC (兼容 MATLAB bleWaveformGenerator)
 
         Args:
             data: PDU + CRC 数据
@@ -188,17 +188,30 @@ class BLEDemodulator:
         # 接收到的 CRC
         received_crc = data[-3] | (data[-2] << 8) | (data[-1] << 16)
 
-        # 计算 CRC
-        crc = 0x555555  # 广播信道初始值
+        # 计算 CRC (MATLAB 兼容方法)
+        # 1. 将字节转为比特流 (LSB first per byte)
+        bits = []
         for byte in pdu:
             for i in range(8):
-                bit = (byte >> i) & 1
-                if (crc & 1) ^ bit:
-                    crc = (crc >> 1) ^ 0x65B
-                else:
-                    crc = crc >> 1
+                bits.append((byte >> i) & 1)
 
-        calculated_crc = crc & 0xFFFFFF
+        # 2. MSB-first 直接方法 CRC 计算
+        poly = 0x00065B
+        crc = 0x555555  # 初始值
+
+        for bit in bits:
+            msb = (crc >> 23) & 1
+            crc = (crc << 1) & 0xFFFFFF
+            if msb ^ bit:
+                crc ^= poly
+
+        # 3. Bit reverse CRC 输出
+        crc_rev = 0
+        for i in range(24):
+            if crc & (1 << i):
+                crc_rev |= (1 << (23 - i))
+
+        calculated_crc = crc_rev
 
         return calculated_crc == received_crc, calculated_crc
 
@@ -279,6 +292,8 @@ class BLEDemodulator:
             )
 
         # 8. 提取数据部分 (跳过前导码和接入地址)
+        # aa_pos 是 sync_pattern (前导码+接入地址) 的起始位置
+        # 需要跳过前导码和接入地址
         preamble_len = 16 if config.phy_mode == BLEPhyMode.LE_2M else 8
         data_start = aa_pos + preamble_len + 32  # 前导码 + 接入地址
 

@@ -140,6 +140,7 @@ def export_channel_output(signal: np.ndarray, config: dict, output_dir: str,
     iq_format = config.get('iq_format', 'two_column')
     number_format = config.get('number_format', 'signed')
     add_header = config.get('add_header', True)
+    scale_to_full = config.get('scale_to_full', True)
 
     export_config = IQExportConfig(
         bit_width=bit_width,
@@ -147,6 +148,7 @@ def export_channel_output(signal: np.ndarray, config: dict, output_dir: str,
         iq_format=IQFormat(iq_format),
         number_format=NumberFormat(number_format),
         add_header=add_header,
+        scale_to_full=scale_to_full,
     )
     exporter = IQExporter(export_config)
 

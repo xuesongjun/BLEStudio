@@ -107,9 +107,6 @@ class BLEModulator:
         """
         GFSK 调制 (MATLAB 兼容实现)
 
-        使用 Full Response GFSK: 每符号的高斯频率脉冲完全包含在一个符号周期内,
-        没有符号间干扰 (ISI)。这与 MATLAB bleWaveformGenerator 的行为一致。
-
         Args:
             bits: 输入比特流 (0/1)
 
@@ -118,48 +115,59 @@ class BLEModulator:
         """
         config = self.config
         N = self.samples_per_symbol
+        L = config.pulse_length
         h = config.modulation_index
         nSym = len(bits)
 
         # NRZ 编码: 0 -> -1, 1 -> +1
         symbols = 2 * bits.astype(np.float64) - 1
 
-        # Full Response GFSK: 每符号独立计算相位
-        phase = np.zeros(nSym * N)
+        # 上采样 (每符号重复 N 次)
+        data = np.repeat(symbols, N)
 
-        for i in range(nSym):
-            sym = symbols[i]
-            start = i * N
+        # 添加前导历史 (用于滤波器初始化)
+        if L > 1:
+            symbPreHist = h * np.ones((L - 1) * N)
+        else:
+            symbPreHist = h * np.ones(N)
 
-            # 计算基础相位 (前一符号的结束相位)
-            if i == 0:
-                base_phase = 0.0
-            else:
-                # 前一符号结束时的相位 = 前一符号最后采样点相位 + 最后一个频率增量
-                base_phase = phase[(i - 1) * N + N - 1] + \
-                             h * symbols[i - 1] * self.freq_pulse[-1] * 2 * np.pi
+        scaledData = np.concatenate([symbPreHist, h * data])
 
-            # 当前符号的相位 = 基础相位 + 高斯相位脉冲响应
-            phase[start:start + N] = base_phase + h * sym * self.phase_pulse * 2 * np.pi
+        # 计算预历史相位偏移
+        if L > 1:
+            q_tail = self.phase_pulse[N:]
+            phvec = np.sum(h * q_tail.reshape(N, L - 1, order='F'), axis=1)
+            preHistPhase = 2 * np.pi * phvec[0]
+        else:
+            preHistPhase = 0
+
+        # CPM 调制: 逐符号计算相位
+        phi = np.zeros(nSym * N)
+        filtWin = np.arange(L * N - 1, -1, -1)  # 滤波窗口索引
+        phState = 0.0
+
+        for ind in range(nSym):
+            # 提取滤波窗口内的数据
+            filtData = scaledData[filtWin + ind * N] * self.phase_pulse
+
+            # 按符号周期求和
+            filtPhase = np.sum(filtData.reshape(N, L, order='F'), axis=1)
+
+            # 累加相位
+            phi[ind * N:(ind + 1) * N] = phState + filtPhase
+
+            # 更新相位状态 (每符号增加 h/2 * symbol)
+            phState = phState + 0.5 * scaledData[ind * N]
+
+        # 最终相位
+        cpmPhase = 2 * np.pi * phi - preHistPhase
 
         # 添加中心频率偏移
         if config.center_freq != 0:
-            t = np.arange(len(phase)) / config.sample_rate
-            phase += 2 * np.pi * config.center_freq * t
+            t = np.arange(len(cpmPhase)) / config.sample_rate
+            cpmPhase += 2 * np.pi * config.center_freq * t
 
         # 生成 IQ 信号
-        iq_signal = np.exp(1j * phase)
+        iq_signal = np.exp(1j * cpmPhase)
 
         return iq_signal
-
-    def modulate_packet(self, packet_bits: np.ndarray) -> np.ndarray:
-        """
-        调制完整数据包
-
-        Args:
-            packet_bits: BLE 数据包比特流
-
-        Returns:
-            IQ 复基带信号
-        """
-        return self.modulate(packet_bits)

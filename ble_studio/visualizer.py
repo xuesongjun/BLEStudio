@@ -1016,6 +1016,7 @@ class BLEVisualizer:
         # 限制数据点数
         max_samples = 3000
         sig_plot = signal[:max_samples] if len(signal) > max_samples else signal
+
         t = np.arange(len(sig_plot)) / sample_rate * 1e6
 
         # IQ 时域
