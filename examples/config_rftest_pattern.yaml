@@ -1,0 +1,27 @@
+# BLE Studio 配置模板 - RF Test 固定模式
+# 场景: DTM 射频测试 - 0x55 交替模式 (用于频谱测试)
+
+mode: "rf_test"
+
+# RF Test 配置
+rf_test:
+  payload_type: "PATTERN_10101010"  # 0x55 交替模式
+  payload_length: 37
+  channel: 0
+
+# 调制参数
+modulation:
+  phy_mode: "LE_1M"
+  sample_rate: 8.0e6
+  modulation_index: 0.5
+  bt: 0.5
+
+# 信道参数
+channel:
+  snr_db: 30
+  freq_offset: 0
+
+# 输出配置
+output:
+  dir: "results"
+  html_report: true

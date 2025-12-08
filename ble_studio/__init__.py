@@ -17,6 +17,12 @@ from .packet import (
     create_advertising_packet,
     create_data_packet,
     generate_random_access_address,
+    # RF Test (DTM)
+    RFTestPayloadType,
+    RFTestPayloadGenerator,
+    RFTestConfig,
+    RFTestPacket,
+    create_test_packet,
 )
 from .modulator import BLEModulator, ModulatorConfig
 from .demodulator import BLEDemodulator, DemodulatorConfig

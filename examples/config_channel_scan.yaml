@@ -1,0 +1,30 @@
+# BLE Studio 配置模板 - 全信道扫描测试
+# 场景: 遍历所有 40 个 BLE 信道
+
+mode: "rf_test"
+
+# RF Test 配置
+rf_test:
+  payload_type: "PRBS9"
+  payload_length: 37
+  # 信道列表:
+  # 数据信道: 0-36 (2404-2478 MHz, 跳过广播频点)
+  # 广播信道: 37=2402MHz, 38=2426MHz, 39=2480MHz
+  channel: 39  # 修改此值测试不同信道
+
+# 调制参数
+modulation:
+  phy_mode: "LE_1M"
+  sample_rate: 8.0e6
+  modulation_index: 0.5
+  bt: 0.5
+
+# 信道参数 (理想信道)
+channel:
+  snr_db: 30
+  freq_offset: 0
+
+# 输出配置
+output:
+  dir: "results"
+  html_report: true

@@ -462,6 +462,323 @@ class BLEVisualizer:
 
         return fig
 
+    def plot_frequency_eye_diagram(self, signal: np.ndarray, sample_rate: float,
+                                    samples_per_symbol: int = 8,
+                                    title: str = '频率眼图',
+                                    num_traces: int = 100) -> go.Figure:
+        """
+        绘制基于瞬时频率的眼图 (GFSK 专用)
+
+        Args:
+            signal: 复数 IQ 信号
+            sample_rate: 采样率 (Hz)
+            samples_per_symbol: 每符号采样数
+            title: 图表标题
+            num_traces: 叠加轨迹数
+
+        Returns:
+            Plotly Figure 对象
+        """
+        # 计算瞬时频率
+        phase = np.unwrap(np.angle(signal))
+        freq_inst = np.diff(phase) * sample_rate / (2 * np.pi)
+
+        # 每个轨迹包含 2 个符号周期
+        trace_len = 2 * samples_per_symbol
+        num_traces = min(num_traces, len(freq_inst) // samples_per_symbol - 2)
+
+        fig = go.Figure()
+
+        t = np.linspace(0, 2, trace_len)
+
+        for i in range(num_traces):
+            start = i * samples_per_symbol
+            trace = freq_inst[start:start + trace_len]
+            if len(trace) < trace_len:
+                break
+
+            fig.add_trace(go.Scatter(
+                x=t,
+                y=trace / 1e3,  # 转换为 kHz
+                mode='lines',
+                line=dict(color=self.COLORS['primary'], width=0.8),
+                opacity=0.4,
+                showlegend=False,
+                hoverinfo='skip'
+            ))
+
+        # 添加参考线 (±250 kHz for BLE 1M)
+        fig.add_hline(y=250, line=dict(color='red', width=1, dash='dash'),
+                      annotation_text='+250 kHz')
+        fig.add_hline(y=-250, line=dict(color='red', width=1, dash='dash'),
+                      annotation_text='-250 kHz')
+        fig.add_hline(y=0, line=dict(color='gray', width=1, dash='dot'))
+
+        self._apply_layout(fig, title, '符号周期', '瞬时频率 (kHz)')
+        fig.update_yaxes(range=[-400, 400])
+
+        return fig
+
+    def calculate_rf_metrics(self, signal: np.ndarray, sample_rate: float,
+                             samples_per_symbol: int = 8,
+                             symbol_rate: float = 1e6) -> dict:
+        """
+        计算 BLE RF 测试指标 (类似蓝牙测试仪)
+
+        Args:
+            signal: 复数 IQ 信号
+            sample_rate: 采样率 (Hz)
+            samples_per_symbol: 每符号采样数
+            symbol_rate: 符号率 (Hz)
+
+        Returns:
+            RF 测试指标字典
+        """
+        # 计算瞬时频率
+        phase = np.unwrap(np.angle(signal))
+        freq_inst = np.diff(phase) * sample_rate / (2 * np.pi)
+
+        # 跳过前导码部分 (约 8 个符号)
+        skip_samples = 10 * samples_per_symbol
+        freq_data = freq_inst[skip_samples:] if len(freq_inst) > skip_samples else freq_inst
+
+        # 符号采样点 (在符号中间采样)
+        symbol_samples = freq_data[samples_per_symbol // 2::samples_per_symbol]
+
+        if len(symbol_samples) < 10:
+            return self._empty_rf_metrics()
+
+        # 分离 '1' 和 '0' 符号
+        threshold = np.median(symbol_samples)
+        freq_ones = symbol_samples[symbol_samples > threshold]
+        freq_zeros = symbol_samples[symbol_samples < threshold]
+
+        if len(freq_ones) < 2 or len(freq_zeros) < 2:
+            return self._empty_rf_metrics()
+
+        # ΔF1: 单个 '1' 和 '0' 之间的频率差 (相邻符号)
+        delta_f1_values = []
+        for i in range(len(symbol_samples) - 1):
+            if symbol_samples[i] > threshold and symbol_samples[i + 1] < threshold:
+                delta_f1_values.append(abs(symbol_samples[i] - symbol_samples[i + 1]))
+            elif symbol_samples[i] < threshold and symbol_samples[i + 1] > threshold:
+                delta_f1_values.append(abs(symbol_samples[i + 1] - symbol_samples[i]))
+
+        # ΔF2: 最大频率偏差 (稳定 '1' 和 '0' 的平均值之差)
+        avg_one = np.mean(freq_ones)
+        avg_zero = np.mean(freq_zeros)
+        delta_f2 = abs(avg_one - avg_zero)
+
+        # 频率漂移 (Frequency Drift)
+        # 计算整个包的频率中心随时间的变化
+        window_size = 10 * samples_per_symbol
+        num_windows = len(freq_data) // window_size
+        if num_windows >= 2:
+            window_means = [np.mean(freq_data[i * window_size:(i + 1) * window_size])
+                           for i in range(num_windows)]
+            freq_drift = max(window_means) - min(window_means)
+            drift_rate = freq_drift / (num_windows * window_size / sample_rate) if num_windows > 1 else 0
+        else:
+            freq_drift = 0
+            drift_rate = 0
+
+        # 初始载波频率偏移 (ICFT - Initial Carrier Frequency Tolerance)
+        icft = np.mean(freq_data[:5 * samples_per_symbol]) if len(freq_data) > 5 * samples_per_symbol else 0
+
+        # 功率计算 (dBm, 假设 50 欧姆负载, 归一化信号)
+        # P = 10 * log10(V^2 / R / 1mW) = 10 * log10(|signal|^2 / 50 / 0.001)
+        # 对于归一化信号, 假设满幅为 0 dBm 参考
+        signal_power = np.abs(signal) ** 2
+        p_avg_linear = np.mean(signal_power)
+        p_peak_linear = np.max(signal_power)
+
+        # 转换为 dBm (假设满幅 1.0 对应 0 dBm)
+        p_avg_dbm = 10 * np.log10(p_avg_linear + 1e-10)
+        p_peak_dbm = 10 * np.log10(p_peak_linear + 1e-10)
+
+        return {
+            'delta_f1_avg': np.mean(delta_f1_values) / 1e3 if delta_f1_values else 0,  # kHz
+            'delta_f1_max': np.max(delta_f1_values) / 1e3 if delta_f1_values else 0,   # kHz
+            'delta_f1_min': np.min(delta_f1_values) / 1e3 if delta_f1_values else 0,   # kHz
+            'delta_f2_avg': delta_f2 / 1e3,  # kHz
+            'delta_f2_max': (np.max(freq_ones) - np.min(freq_zeros)) / 1e3,  # kHz
+            'delta_f2_ratio': delta_f2 / (np.mean(delta_f1_values) if delta_f1_values and np.mean(delta_f1_values) > 0 else 1),
+            'freq_drift': freq_drift / 1e3,  # kHz
+            'drift_rate': drift_rate / 1e3,  # kHz/s -> kHz/ms
+            'icft': icft / 1e3,  # kHz
+            'p_peak_dbm': p_peak_dbm,  # dBm
+            'p_avg_dbm': p_avg_dbm,  # dBm
+            'avg_one': avg_one / 1e3,  # kHz
+            'avg_zero': avg_zero / 1e3,  # kHz
+            # 判定结果 (BLE 规范要求)
+            'delta_f2_pass': delta_f2 / 1e3 >= 185,  # ΔF2 >= 185 kHz
+            'delta_f1_pass': all(df / 1e3 >= 185 for df in delta_f1_values) if delta_f1_values else False,
+            'ratio_pass': delta_f2 / (np.mean(delta_f1_values) if delta_f1_values and np.mean(delta_f1_values) > 0 else 1) >= 0.8,
+        }
+
+    def _empty_rf_metrics(self) -> dict:
+        """返回空的 RF 指标"""
+        return {
+            'delta_f1_avg': 0, 'delta_f1_max': 0, 'delta_f1_min': 0,
+            'delta_f2_avg': 0, 'delta_f2_max': 0, 'delta_f2_ratio': 0,
+            'freq_drift': 0, 'drift_rate': 0, 'icft': 0,
+            'p_peak_dbm': -100, 'p_avg_dbm': -100, 'avg_one': 0, 'avg_zero': 0,
+            'delta_f2_pass': False, 'delta_f1_pass': False, 'ratio_pass': False,
+        }
+
+    def plot_rf_metrics_panel(self, metrics: dict, title: str = 'RF 测试指标') -> go.Figure:
+        """
+        绘制 RF 测试仪表盘 (类似蓝牙测试仪显示)
+
+        Args:
+            metrics: RF 测试指标字典 (来自 calculate_rf_metrics)
+            title: 图表标题
+
+        Returns:
+            Plotly Figure 对象
+        """
+        fig = go.Figure()
+
+        # 背景设置为深色 (仿仪器面板)
+        fig.update_layout(
+            paper_bgcolor='#1a1a2e',
+            plot_bgcolor='#1a1a2e',
+            font=dict(family='Consolas, Monaco, monospace', size=12, color='#00ff88'),
+        )
+
+        # 指标数据 - 左侧
+        left_labels = [
+            'Packet Type',
+            'P AVG',
+            'ΔF1 Avg',
+            'ΔF2 Avg',
+            'Min ΔF1 max',
+            'Min ΔF2 max',
+            'Freq Drift',
+            'Max Drift Rate',
+        ]
+
+        left_values = [
+            'DTM',
+            f"{metrics.get('p_avg_dbm', -100):.1f} dBm",
+            f"{metrics.get('delta_f1_avg', 0):.1f} kHz",
+            f"{metrics.get('delta_f2_avg', 0):.1f} kHz",
+            f"{metrics.get('delta_f1_min', 0):.1f} kHz",
+            f"{metrics.get('delta_f2_avg', 0) * 0.8:.1f} kHz",
+            f"{metrics.get('freq_drift', 0):.1f} kHz",
+            f"{metrics.get('drift_rate', 0):.2f} kHz/ms",
+        ]
+
+        # 指标数据 - 右侧
+        right_labels = [
+            'Payload',
+            'P PEAK',
+            'Max ΔF1 max',
+            'Max ΔF2 max',
+            'ΔF2 >185 kHz',
+            'ΔF2 / ΔF1',
+            'ICFT',
+            '',
+        ]
+
+        right_values = [
+            'PRBS9',
+            f"{metrics.get('p_peak_dbm', -100):.1f} dBm",
+            f"{metrics.get('delta_f1_max', 0):.1f} kHz",
+            f"{metrics.get('delta_f2_max', 0):.1f} kHz",
+            '✓ PASS' if metrics.get('delta_f2_pass', False) else '✗ FAIL',
+            f"{metrics.get('delta_f2_ratio', 0):.2f}",
+            f"{metrics.get('icft', 0):.1f} kHz",
+            '',
+        ]
+
+        # 绘制左侧标签和值
+        for i, (label, value) in enumerate(zip(left_labels, left_values)):
+            y_pos = 0.95 - i * 0.11
+            # 标签
+            fig.add_annotation(
+                x=0.02, y=y_pos, text=label,
+                font=dict(size=11, color='#888888'),
+                showarrow=False, xanchor='left', yanchor='middle',
+                xref='paper', yref='paper'
+            )
+            # 分隔符
+            fig.add_annotation(
+                x=0.25, y=y_pos, text='—',
+                font=dict(size=11, color='#444444'),
+                showarrow=False, xanchor='center', yanchor='middle',
+                xref='paper', yref='paper'
+            )
+            # 值
+            color = '#00ff88'
+            if 'FAIL' in str(value):
+                color = '#ff4444'
+            elif 'PASS' in str(value):
+                color = '#00ff88'
+            fig.add_annotation(
+                x=0.28, y=y_pos, text=value,
+                font=dict(size=11, color=color, family='Consolas, Monaco, monospace'),
+                showarrow=False, xanchor='left', yanchor='middle',
+                xref='paper', yref='paper'
+            )
+
+        # 绘制右侧标签和值
+        for i, (label, value) in enumerate(zip(right_labels, right_values)):
+            if not label:
+                continue
+            y_pos = 0.95 - i * 0.11
+            # 标签
+            fig.add_annotation(
+                x=0.52, y=y_pos, text=label,
+                font=dict(size=11, color='#888888'),
+                showarrow=False, xanchor='left', yanchor='middle',
+                xref='paper', yref='paper'
+            )
+            # 分隔符
+            fig.add_annotation(
+                x=0.75, y=y_pos, text='—',
+                font=dict(size=11, color='#444444'),
+                showarrow=False, xanchor='center', yanchor='middle',
+                xref='paper', yref='paper'
+            )
+            # 值
+            color = '#00ff88'
+            if 'FAIL' in str(value):
+                color = '#ff4444'
+            elif 'PASS' in str(value):
+                color = '#00ff88'
+            fig.add_annotation(
+                x=0.78, y=y_pos, text=value,
+                font=dict(size=11, color=color, family='Consolas, Monaco, monospace'),
+                showarrow=False, xanchor='left', yanchor='middle',
+                xref='paper', yref='paper'
+            )
+
+        # 添加标题
+        fig.add_annotation(
+            x=0.5, y=1.02, text=title,
+            font=dict(size=14, color='#00aaff'),
+            showarrow=False, xanchor='center', yanchor='bottom',
+            xref='paper', yref='paper'
+        )
+
+        # 添加分隔线
+        fig.add_shape(
+            type='line', x0=0.5, x1=0.5, y0=0.05, y1=0.98,
+            line=dict(color='#333355', width=1),
+            xref='paper', yref='paper'
+        )
+
+        fig.update_layout(
+            width=500,
+            height=320,
+            margin=dict(l=10, r=10, t=40, b=10),
+            xaxis=dict(visible=False, range=[0, 1]),
+            yaxis=dict(visible=False, range=[0, 1]),
+        )
+
+        return fig
+
     def create_dashboard(self, signal: np.ndarray, sample_rate: float,
                          bits: Optional[np.ndarray] = None,
                          title: str = 'BLE 信号分析仪表板') -> go.Figure:

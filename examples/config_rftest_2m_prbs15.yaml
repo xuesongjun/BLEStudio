@@ -1,0 +1,27 @@
+# BLE Studio 配置模板 - RF Test PRBS15 (2M PHY)
+# 场景: DTM 射频测试 - 2M PHY PRBS15
+
+mode: "rf_test"
+
+# RF Test 配置
+rf_test:
+  payload_type: "PRBS15"
+  payload_length: 255  # 最大负载
+  channel: 19  # 2442 MHz (中间频率)
+
+# 调制参数
+modulation:
+  phy_mode: "LE_2M"
+  sample_rate: 16.0e6  # 2M PHY 建议更高采样率
+  modulation_index: 0.5
+  bt: 0.5
+
+# 信道参数
+channel:
+  snr_db: 25
+  freq_offset: 0
+
+# 输出配置
+output:
+  dir: "results"
+  html_report: true

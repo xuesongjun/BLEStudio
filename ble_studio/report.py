@@ -115,6 +115,11 @@ class ReportGenerator:
         mod = results.get('modulation', {})
         demod = results.get('demodulation', {})
         ch = results.get('channel', {})
+        rf_test = results.get('rf_test', {})
+
+        # 计算每符号采样数
+        symbol_rate = mod.get('symbol_rate_msps', 1.0) * 1e6
+        samples_per_symbol = int(sample_rate / symbol_rate)
 
         # 生成图表 JSON
         fig_iq = self.viz.plot_iq_combined(iq_signal, sample_rate, title='IQ 时域波形', max_samples=2000)
@@ -129,15 +134,32 @@ class ReportGenerator:
         fig_freq = self.viz.plot_frequency_deviation(iq_signal, sample_rate, title='瞬时频率')
         fig_freq.update_layout(height=280, margin=dict(l=50, r=30, t=40, b=40))
 
+        # 新增: 频率眼图
+        fig_eye = self.viz.plot_frequency_eye_diagram(
+            iq_signal, sample_rate, samples_per_symbol,
+            title='频率眼图', num_traces=80
+        )
+        fig_eye.update_layout(height=280, margin=dict(l=50, r=30, t=40, b=40))
+
+        # 新增: 计算 RF 测试指标
+        rf_metrics = self.viz.calculate_rf_metrics(iq_signal, sample_rate, samples_per_symbol)
+        rf_metrics['payload_type'] = rf_test.get('payload_type', tx.get('test_mode', 'ADV'))
+
+        # 新增: RF 测试仪表盘
+        fig_rf_panel = self.viz.plot_rf_metrics_panel(rf_metrics, title='RF 测试指标')
+
         # 转换为 JSON (使用共享函数解码 bdata 格式)
         chart_iq_json = _fig_to_json(fig_iq)
         chart_spectrum_json = _fig_to_json(fig_spectrum)
         chart_const_json = _fig_to_json(fig_const)
         chart_freq_json = _fig_to_json(fig_freq)
+        chart_eye_json = _fig_to_json(fig_eye)
+        chart_rf_panel_json = _fig_to_json(fig_rf_panel)
 
         html = self._index_template(
-            tx, mod, demod, ch,
-            chart_iq_json, chart_spectrum_json, chart_const_json, chart_freq_json
+            tx, mod, demod, ch, rf_metrics,
+            chart_iq_json, chart_spectrum_json, chart_const_json,
+            chart_freq_json, chart_eye_json, chart_rf_panel_json
         )
 
         with open(os.path.join(self.output_dir, 'index.html'), 'w', encoding='utf-8') as f:
@@ -149,6 +171,10 @@ class ReportGenerator:
                         bits: np.ndarray,
                         sample_rate: float = 8e6):
         """生成图表页面"""
+        mod = results.get('modulation', {})
+        symbol_rate = mod.get('symbol_rate_msps', 1.0) * 1e6
+        samples_per_symbol = int(sample_rate / symbol_rate)
+
         charts_data = [
             ('IQ 时域波形', 'chart-iq', self.viz.plot_iq_time(iq_signal, sample_rate, title='BLE IQ 时域波形')),
             ('频谱图', 'chart-spectrum', self.viz.plot_spectrum(iq_signal, sample_rate, title='BLE 信号频谱')),
@@ -157,6 +183,7 @@ class ReportGenerator:
             ('时频谱图', 'chart-spectrogram', self.viz.plot_spectrogram(iq_signal, sample_rate, title='BLE 信号时频谱图')),
             ('比特流', 'chart-bits', self.viz.plot_bits(bits, title='BLE 数据包比特流')),
             ('瞬时频率', 'chart-freq', self.viz.plot_frequency_deviation(iq_signal, sample_rate, title='GFSK 瞬时频率偏移')),
+            ('频率眼图', 'chart-eye', self.viz.plot_frequency_eye_diagram(iq_signal, sample_rate, samples_per_symbol, title='GFSK 频率眼图', num_traces=100)),
         ]
 
         charts_html = []
@@ -179,8 +206,9 @@ class ReportGenerator:
         with open(os.path.join(self.output_dir, 'report.html'), 'w', encoding='utf-8') as f:
             f.write(html)
 
-    def _index_template(self, tx, mod, demod, ch,
-                        chart_iq, chart_spectrum, chart_const, chart_freq):
+    def _index_template(self, tx, mod, demod, ch, rf_metrics,
+                        chart_iq, chart_spectrum, chart_const, chart_freq,
+                        chart_eye, chart_rf_panel):
         """首页模板"""
         return f'''<!DOCTYPE html>
 <html lang="zh-CN">
@@ -195,11 +223,11 @@ class ReportGenerator:
         .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px 30px; display: flex; justify-content: space-between; align-items: center; }}
         .header h1 {{ font-size: 1.8em; }}
         .header .time {{ font-size: 0.9em; opacity: 0.8; }}
-        .main-container {{ display: grid; grid-template-columns: 280px 1fr; gap: 20px; padding: 20px; max-width: 1800px; margin: 0 auto; }}
+        .main-container {{ display: grid; grid-template-columns: 280px 1fr; gap: 20px; padding: 20px; max-width: 1900px; margin: 0 auto; }}
         .side-panel {{ display: flex; flex-direction: column; gap: 15px; }}
         .status-card {{ background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
         .status-card h3 {{ font-size: 0.85em; color: #666; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 0.5px; }}
-        .status-row {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }}
+        .status-row {{ display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }}
         .status-row:last-child {{ border-bottom: none; }}
         .status-row .label {{ color: #666; font-size: 0.9em; }}
         .status-row .value {{ font-weight: 600; font-size: 0.95em; }}
@@ -207,16 +235,18 @@ class ReportGenerator:
         .status-badge.success {{ background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; }}
         .status-badge.fail {{ background: #fff2f0; color: #ff4d4f; border: 1px solid #ffccc7; }}
         .nav-links {{ display: flex; flex-direction: column; gap: 10px; }}
-        .nav-link {{ display: block; padding: 15px 20px; background: white; border-radius: 10px; text-decoration: none; color: #333; font-weight: 500; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: all 0.2s; }}
+        .nav-link {{ display: block; padding: 12px 16px; background: white; border-radius: 10px; text-decoration: none; color: #333; font-weight: 500; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: all 0.2s; }}
         .nav-link:hover {{ transform: translateX(5px); box-shadow: 0 4px 12px rgba(0,0,0,0.12); }}
         .nav-link.report {{ border-left: 4px solid #52c41a; }}
         .nav-link.charts {{ border-left: 4px solid #fa8c16; }}
-        .charts-panel {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }}
+        .charts-panel {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }}
         .chart-card {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
-        .chart-card .chart-title {{ padding: 12px 15px; font-size: 0.9em; font-weight: 600; color: #333; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }}
+        .chart-card .chart-title {{ padding: 10px 15px; font-size: 0.85em; font-weight: 600; color: #333; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; }}
         .chart-card .chart-title a {{ font-size: 0.8em; color: #667eea; text-decoration: none; }}
-        .chart-card .chart-content {{ padding: 10px; }}
-        .data-compare {{ grid-column: span 2; background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
+        .chart-card .chart-content {{ padding: 8px; }}
+        .chart-card.dark {{ background: #1a1a2e; }}
+        .chart-card.dark .chart-title {{ background: #1a1a2e; color: #00aaff; border-bottom: 1px solid #333355; }}
+        .data-compare {{ grid-column: span 3; background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }}
         .data-compare h3 {{ font-size: 0.95em; color: #333; margin-bottom: 15px; }}
         .payload-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }}
         .payload-box {{ background: #f8f9fa; border-radius: 8px; padding: 15px; }}
@@ -227,7 +257,8 @@ class ReportGenerator:
         .match-status {{ text-align: center; padding: 15px; margin-top: 15px; border-radius: 8px; font-weight: 600; }}
         .match-status.success {{ background: linear-gradient(135deg, #f6ffed 0%, #d9f7be 100%); color: #389e0d; }}
         .match-status.fail {{ background: linear-gradient(135deg, #fff2f0 0%, #ffccc7 100%); color: #cf1322; }}
-        @media (max-width: 1200px) {{ .main-container {{ grid-template-columns: 1fr; }} .side-panel {{ flex-direction: row; flex-wrap: wrap; }} .status-card {{ flex: 1; min-width: 250px; }} .charts-panel {{ grid-template-columns: 1fr; }} .data-compare {{ grid-column: span 1; }} .payload-grid {{ grid-template-columns: 1fr; }} }}
+        @media (max-width: 1400px) {{ .charts-panel {{ grid-template-columns: repeat(2, 1fr); }} .data-compare {{ grid-column: span 2; }} }}
+        @media (max-width: 1000px) {{ .main-container {{ grid-template-columns: 1fr; }} .side-panel {{ flex-direction: row; flex-wrap: wrap; }} .status-card {{ flex: 1; min-width: 250px; }} .charts-panel {{ grid-template-columns: 1fr; }} .data-compare {{ grid-column: span 1; }} .payload-grid {{ grid-template-columns: 1fr; }} }}
     </style>
 </head>
 <body>
@@ -251,6 +282,13 @@ class ReportGenerator:
                 <div class="status-row"><span class="label">调制指数</span><span class="value">{mod.get('modulation_index', 'N/A')}</span></div>
                 <div class="status-row"><span class="label">Payload</span><span class="value">{tx.get('payload_len', 'N/A')} bytes</span></div>
             </div>
+            <div class="status-card">
+                <h3>RF 测试结果</h3>
+                <div class="status-row"><span class="label">ΔF1 Avg</span><span class="value">{rf_metrics.get('delta_f1_avg', 0):.1f} kHz</span></div>
+                <div class="status-row"><span class="label">ΔF2 Avg</span><span class="value">{rf_metrics.get('delta_f2_avg', 0):.1f} kHz</span></div>
+                <div class="status-row"><span class="label">ΔF2/ΔF1</span><span class="value">{rf_metrics.get('delta_f2_ratio', 0):.2f}</span></div>
+                <div class="status-row"><span class="label">ΔF2≥185kHz</span><span class="status-badge {'success' if rf_metrics.get('delta_f2_pass') else 'fail'}">{'PASS' if rf_metrics.get('delta_f2_pass') else 'FAIL'}</span></div>
+            </div>
             <div class="nav-links">
                 <a href="report.html" class="nav-link report">查看详细报告 &rarr;</a>
                 <a href="charts.html" class="nav-link charts">查看全部图表 &rarr;</a>
@@ -259,8 +297,10 @@ class ReportGenerator:
         <div class="charts-panel">
             <div class="chart-card"><div class="chart-title">IQ 时域波形<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-iq"></div></div></div>
             <div class="chart-card"><div class="chart-title">频谱图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-spectrum"></div></div></div>
-            <div class="chart-card"><div class="chart-title">星座图 (加噪后)<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-const"></div></div></div>
-            <div class="chart-card"><div class="chart-title">瞬时频率偏移<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-freq"></div></div></div>
+            <div class="chart-card"><div class="chart-title">星座图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-const"></div></div></div>
+            <div class="chart-card"><div class="chart-title">瞬时频率<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-freq"></div></div></div>
+            <div class="chart-card"><div class="chart-title">频率眼图<a href="charts.html">详情 &rarr;</a></div><div class="chart-content"><div id="chart-eye"></div></div></div>
+            <div class="chart-card dark"><div class="chart-title">RF 测试仪表盘</div><div class="chart-content"><div id="chart-rf-panel"></div></div></div>
             <div class="data-compare">
                 <h3>Payload 数据对比</h3>
                 <div class="payload-grid">
@@ -277,10 +317,14 @@ class ReportGenerator:
             var chartSpectrumData = {chart_spectrum};
             var chartConstData = {chart_const};
             var chartFreqData = {chart_freq};
+            var chartEyeData = {chart_eye};
+            var chartRfPanelData = {chart_rf_panel};
             Plotly.newPlot('chart-iq', chartIqData.data, chartIqData.layout, {{responsive: true}});
             Plotly.newPlot('chart-spectrum', chartSpectrumData.data, chartSpectrumData.layout, {{responsive: true}});
             Plotly.newPlot('chart-const', chartConstData.data, chartConstData.layout, {{responsive: true}});
             Plotly.newPlot('chart-freq', chartFreqData.data, chartFreqData.layout, {{responsive: true}});
+            Plotly.newPlot('chart-eye', chartEyeData.data, chartEyeData.layout, {{responsive: true}});
+            Plotly.newPlot('chart-rf-panel', chartRfPanelData.data, chartRfPanelData.layout, {{responsive: true}});
         }};
     </script>
 </body>

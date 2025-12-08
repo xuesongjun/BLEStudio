@@ -43,6 +43,18 @@ class DataPDUType(IntEnum):
     LL_CONTROL = 0x03        # LL Control PDU
 
 
+class RFTestPayloadType(IntEnum):
+    """RF Test 测试负载类型 (DTM - Direct Test Mode)"""
+    PRBS9 = 0x00           # PRBS9 伪随机序列
+    PATTERN_11110000 = 0x01  # 11110000 重复模式 (0xF0)
+    PATTERN_10101010 = 0x02  # 10101010 重复模式 (0x55)
+    PRBS15 = 0x03          # PRBS15 伪随机序列
+    PATTERN_11111111 = 0x04  # 全1 (0xFF)
+    PATTERN_00000000 = 0x05  # 全0 (0x00)
+    PATTERN_00001111 = 0x06  # 00001111 重复模式 (0x0F)
+    PATTERN_01010101 = 0x07  # 01010101 重复模式 (0xAA)
+
+
 class LLControlOpcode(IntEnum):
     """链路层控制 PDU 操作码"""
     LL_CONNECTION_UPDATE_IND = 0x00
@@ -573,3 +585,234 @@ def generate_random_access_address() -> int:
             continue
 
         return aa
+
+
+class RFTestPayloadGenerator:
+    """RF Test 测试负载生成器"""
+
+    @staticmethod
+    def generate_prbs9(length: int) -> bytes:
+        """
+        生成 PRBS9 伪随机序列
+
+        多项式: x^9 + x^5 + 1
+        初始值: 0x1FF (全1)
+
+        Args:
+            length: 负载字节长度
+
+        Returns:
+            PRBS9 序列 (bytes)
+        """
+        lfsr = 0x1FF  # 9-bit LFSR 初始值
+        result = []
+
+        for _ in range(length):
+            byte = 0
+            for bit_idx in range(8):
+                # 输出当前 bit
+                output_bit = lfsr & 1
+                byte |= (output_bit << bit_idx)
+
+                # LFSR 反馈: x^9 + x^5 + 1
+                feedback = ((lfsr >> 0) ^ (lfsr >> 4)) & 1
+                lfsr = ((lfsr >> 1) | (feedback << 8)) & 0x1FF
+
+            result.append(byte)
+
+        return bytes(result)
+
+    @staticmethod
+    def generate_prbs15(length: int) -> bytes:
+        """
+        生成 PRBS15 伪随机序列
+
+        多项式: x^15 + x^14 + 1
+        初始值: 0x7FFF (全1)
+
+        Args:
+            length: 负载字节长度
+
+        Returns:
+            PRBS15 序列 (bytes)
+        """
+        lfsr = 0x7FFF  # 15-bit LFSR 初始值
+        result = []
+
+        for _ in range(length):
+            byte = 0
+            for bit_idx in range(8):
+                # 输出当前 bit
+                output_bit = lfsr & 1
+                byte |= (output_bit << bit_idx)
+
+                # LFSR 反馈: x^15 + x^14 + 1
+                feedback = ((lfsr >> 0) ^ (lfsr >> 1)) & 1
+                lfsr = ((lfsr >> 1) | (feedback << 14)) & 0x7FFF
+
+            result.append(byte)
+
+        return bytes(result)
+
+    @staticmethod
+    def generate_pattern(pattern_type: RFTestPayloadType, length: int) -> bytes:
+        """
+        生成测试负载
+
+        Args:
+            pattern_type: 负载类型
+            length: 负载字节长度
+
+        Returns:
+            测试负载 (bytes)
+        """
+        if pattern_type == RFTestPayloadType.PRBS9:
+            return RFTestPayloadGenerator.generate_prbs9(length)
+        elif pattern_type == RFTestPayloadType.PRBS15:
+            return RFTestPayloadGenerator.generate_prbs15(length)
+        elif pattern_type == RFTestPayloadType.PATTERN_11110000:
+            return bytes([0xF0] * length)
+        elif pattern_type == RFTestPayloadType.PATTERN_10101010:
+            return bytes([0x55] * length)
+        elif pattern_type == RFTestPayloadType.PATTERN_11111111:
+            return bytes([0xFF] * length)
+        elif pattern_type == RFTestPayloadType.PATTERN_00000000:
+            return bytes([0x00] * length)
+        elif pattern_type == RFTestPayloadType.PATTERN_00001111:
+            return bytes([0x0F] * length)
+        elif pattern_type == RFTestPayloadType.PATTERN_01010101:
+            return bytes([0xAA] * length)
+        else:
+            raise ValueError(f"Unknown pattern type: {pattern_type}")
+
+
+@dataclass
+class RFTestConfig:
+    """RF Test 配置"""
+    phy_mode: BLEPhyMode = BLEPhyMode.LE_1M
+    channel: int = 0                          # 测试信道 (0-39)
+    payload_type: RFTestPayloadType = RFTestPayloadType.PRBS9
+    payload_length: int = 37                  # 负载长度 (0-255)
+    access_address: int = 0x71764129          # DTM 默认接入地址
+    crc_init: int = 0x555555                  # CRC 初始值
+
+
+class RFTestPacket(BLEPacket):
+    """BLE RF Test 数据包生成器 (DTM - Direct Test Mode)"""
+
+    # DTM 默认接入地址 (LE Test Packet Access Address)
+    DTM_ACCESS_ADDRESS = 0x71764129
+
+    def __init__(self, config: Optional[RFTestConfig] = None):
+        self.test_config = config or RFTestConfig()
+
+        # 生成测试负载
+        payload = RFTestPayloadGenerator.generate_pattern(
+            self.test_config.payload_type,
+            self.test_config.payload_length
+        )
+
+        # 构建 BLE 数据包配置
+        packet_config = BLEPacketConfig(
+            phy_mode=self.test_config.phy_mode,
+            channel=self.test_config.channel,
+            channel_type=BLEChannelType.DATA,  # DTM 使用数据信道格式
+            access_address=self.test_config.access_address,
+            pdu_type=self.test_config.payload_type,  # PDU type 字段存储 payload type
+            payload=payload,
+            crc_init=self.test_config.crc_init
+        )
+
+        super().__init__(packet_config)
+        self._test_payload = payload
+
+    def generate_pdu(self) -> bytes:
+        """生成 DTM PDU"""
+        # DTM PDU 头部 (2字节)
+        # [Payload Type (4bit)] [RFU (4bit)]
+        # [Length (8bit)]
+        pdu_header = bytes([
+            self.test_config.payload_type & 0x0F,
+            self.test_config.payload_length & 0xFF
+        ])
+
+        return pdu_header + self._test_payload
+
+    @property
+    def test_payload(self) -> bytes:
+        """获取测试负载"""
+        return self._test_payload
+
+    def get_test_info(self) -> dict:
+        """获取测试信息"""
+        pattern_names = {
+            RFTestPayloadType.PRBS9: "PRBS9",
+            RFTestPayloadType.PRBS15: "PRBS15",
+            RFTestPayloadType.PATTERN_11110000: "11110000 (0xF0)",
+            RFTestPayloadType.PATTERN_10101010: "10101010 (0x55)",
+            RFTestPayloadType.PATTERN_11111111: "11111111 (0xFF)",
+            RFTestPayloadType.PATTERN_00000000: "00000000 (0x00)",
+            RFTestPayloadType.PATTERN_00001111: "00001111 (0x0F)",
+            RFTestPayloadType.PATTERN_01010101: "01010101 (0xAA)",
+        }
+
+        phy_names = {
+            BLEPhyMode.LE_1M: "LE 1M",
+            BLEPhyMode.LE_2M: "LE 2M",
+            BLEPhyMode.LE_CODED_S8: "LE Coded S=8",
+            BLEPhyMode.LE_CODED_S2: "LE Coded S=2",
+        }
+
+        return {
+            'phy_mode': phy_names.get(self.test_config.phy_mode, "Unknown"),
+            'channel': self.test_config.channel,
+            'frequency_mhz': 2402 + self.test_config.channel * 2 if self.test_config.channel < 11 else
+                             2426 + (self.test_config.channel - 11) * 2 if self.test_config.channel < 37 else
+                             [2402, 2426, 2480][self.test_config.channel - 37],
+            'payload_type': pattern_names.get(self.test_config.payload_type, "Unknown"),
+            'payload_length': self.test_config.payload_length,
+            'access_address': f"0x{self.test_config.access_address:08X}",
+        }
+
+
+def create_test_packet(
+    payload_type: RFTestPayloadType = RFTestPayloadType.PRBS9,
+    payload_length: int = 37,
+    channel: int = 0,
+    phy_mode: BLEPhyMode = BLEPhyMode.LE_1M,
+    access_address: int = 0x71764129
+) -> RFTestPacket:
+    """
+    创建 RF Test 测试数据包的便捷函数
+
+    Args:
+        payload_type: 测试负载类型 (PRBS9, PRBS15, 固定模式等)
+        payload_length: 负载长度 (0-255 bytes)
+        channel: 测试信道 (0-39)
+        phy_mode: PHY 模式
+        access_address: 接入地址 (默认 DTM 地址)
+
+    Returns:
+        RFTestPacket 对象
+
+    Example:
+        # 创建 PRBS9 测试包
+        packet = create_test_packet(RFTestPayloadType.PRBS9, 37, channel=0)
+
+        # 创建全1测试包
+        packet = create_test_packet(RFTestPayloadType.PATTERN_11111111, 255)
+
+        # 创建 2M PHY PRBS15 测试包
+        packet = create_test_packet(
+            RFTestPayloadType.PRBS15, 100,
+            phy_mode=BLEPhyMode.LE_2M
+        )
+    """
+    config = RFTestConfig(
+        phy_mode=phy_mode,
+        channel=channel,
+        payload_type=payload_type,
+        payload_length=payload_length,
+        access_address=access_address
+    )
+    return RFTestPacket(config)

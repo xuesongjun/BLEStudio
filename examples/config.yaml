@@ -1,7 +1,10 @@
 # BLE Studio 仿真配置文件
 # 修改此文件后运行 demo.py 即可
 
-# 发送端配置
+# 仿真模式: advertising (广播包) 或 rf_test/dtm (射频测试)
+mode: "advertising"
+
+# 发送端配置 (广播模式使用)
 tx:
   # 广播地址 (6字节, 十六进制)
   adv_address: "11:22:33:44:55:66"
@@ -9,6 +12,23 @@ tx:
   adv_data: "0201060908424c455374756469"
   # 广播信道 (37, 38, 39)
   channel: 37
+
+# RF Test 配置 (DTM模式使用)
+rf_test:
+  # 负载类型:
+  #   PRBS9 - PRBS9 伪随机序列
+  #   PRBS15 - PRBS15 伪随机序列
+  #   PATTERN_11110000 - 0xF0 重复
+  #   PATTERN_10101010 - 0x55 重复
+  #   PATTERN_11111111 - 0xFF 全1
+  #   PATTERN_00000000 - 0x00 全0
+  #   PATTERN_00001111 - 0x0F 重复
+  #   PATTERN_01010101 - 0xAA 重复
+  payload_type: "PRBS9"
+  # 负载长度 (0-255 bytes)
+  payload_length: 37
+  # 测试信道 (0-39)
+  channel: 0
 
 # 调制参数
 modulation:

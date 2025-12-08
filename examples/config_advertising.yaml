@@ -1,0 +1,27 @@
+# BLE Studio 配置模板 - 广播包仿真
+# 场景: 标准 BLE 广播包传输测试
+
+mode: "advertising"
+
+# 发送端配置
+tx:
+  adv_address: "11:22:33:44:55:66"
+  adv_data: "0201060908424c455374756469"  # Flags + 设备名称 "BLEStudi"
+  channel: 37
+
+# 调制参数
+modulation:
+  phy_mode: "LE_1M"
+  sample_rate: 8.0e6
+  modulation_index: 0.5
+  bt: 0.5
+
+# 信道参数
+channel:
+  snr_db: 15
+  freq_offset: 50.0e3
+
+# 输出配置
+output:
+  dir: "results"
+  html_report: true
