@@ -30,7 +30,7 @@ rf_test:
   #   PATTERN_00000000 - 0x00 全0
   #   PATTERN_00001111 - 0x0F 重复
   #   PATTERN_01010101 - 0xAA 重复
-  payload_type: "PATTERN_10101010"
+  payload_type: "PRBS9"
   # 负载长度 (0-255 bytes)
   payload_length: 37
   # 测试信道 (0-39)

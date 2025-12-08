@@ -521,6 +521,124 @@ class BLEVisualizer:
 
         return fig
 
+    def plot_iq_eye_diagram(self, signal: np.ndarray, samples_per_symbol: int,
+                            title: str = 'IQ 眼图',
+                            num_traces: int = 100,
+                            interpolation_factor: int = 8) -> go.Figure:
+        """
+        绘制 IQ 眼图 (MATLAB eyediagram 风格)
+
+        同时显示 I (In-Phase) 和 Q (Quadrature) 分量的眼图，
+        与 MATLAB 的 eyediagram(signal, 2*sps) 输出一致。
+
+        Args:
+            signal: 复数 IQ 信号
+            samples_per_symbol: 每符号采样数
+            title: 图表标题
+            num_traces: 叠加轨迹数
+            interpolation_factor: 插值倍数 (使曲线更平滑)
+
+        Returns:
+            Plotly Figure 对象 (2 行子图)
+        """
+        from plotly.subplots import make_subplots
+        from scipy.interpolate import CubicSpline
+
+        # 每个轨迹包含 2 个符号周期 (与 MATLAB 一致)
+        trace_len = 2 * samples_per_symbol
+        num_traces = min(num_traces, len(signal) // samples_per_symbol - 1)
+
+        # 原始时间轴
+        t_orig = np.linspace(-1, 1, trace_len)
+        # 插值后的时间轴 (更密集的点使曲线更平滑)
+        t_interp = np.linspace(-1, 1, trace_len * interpolation_factor)
+
+        # 创建 2 行子图
+        fig = make_subplots(
+            rows=2, cols=1,
+            subplot_titles=['Eye Diagram for In-Phase Signal',
+                          'Eye Diagram for Quadrature Signal'],
+            vertical_spacing=0.12
+        )
+
+        # 根据主题选择颜色
+        trace_color = self.COLORS['primary']
+        trace_opacity = 0.6 if self.theme == 'instrument' else 0.4
+        trace_width = 1.0 if self.theme == 'instrument' else 0.8
+
+        # 绘制每个轨迹
+        for i in range(num_traces):
+            # 从符号边界开始
+            start = i * samples_per_symbol
+            trace = signal[start:start + trace_len]
+            if len(trace) < trace_len:
+                break
+
+            # 使用三次样条插值使曲线平滑 (类似 MATLAB eyediagram)
+            cs_i = CubicSpline(t_orig, trace.real)
+            cs_q = CubicSpline(t_orig, trace.imag)
+            i_interp = cs_i(t_interp)
+            q_interp = cs_q(t_interp)
+
+            # I 分量 (In-Phase)
+            fig.add_trace(go.Scatter(
+                x=t_interp,
+                y=i_interp,
+                mode='lines',
+                line=dict(color=trace_color, width=trace_width),
+                opacity=trace_opacity,
+                showlegend=False,
+                hoverinfo='skip'
+            ), row=1, col=1)
+
+            # Q 分量 (Quadrature)
+            fig.add_trace(go.Scatter(
+                x=t_interp,
+                y=q_interp,
+                mode='lines',
+                line=dict(color=trace_color, width=trace_width),
+                opacity=trace_opacity,
+                showlegend=False,
+                hoverinfo='skip'
+            ), row=2, col=1)
+
+        # 应用布局
+        fig.update_layout(
+            title=dict(text=title, font=dict(color=self.COLORS['text'])),
+            paper_bgcolor=self.COLORS['background'],
+            plot_bgcolor=self.COLORS.get('plot_bg', self.COLORS['background']),
+            font=dict(color=self.COLORS['text']),
+            height=600,
+            showlegend=False,
+        )
+
+        # Y 轴范围 (归一化到 ±1)
+        max_amp = max(np.max(np.abs(signal.real)), np.max(np.abs(signal.imag)))
+        y_range = [-1.1, 1.1] if max_amp <= 1.0 else [-max_amp * 1.1, max_amp * 1.1]
+
+        for row in [1, 2]:
+            fig.update_xaxes(
+                title_text='Time' if row == 2 else '',
+                gridcolor=self.COLORS['grid'],
+                zerolinecolor=self.COLORS['grid'],
+                range=[-1, 1],
+                tickvals=[-1, -0.5, 0, 0.5, 1],
+                row=row, col=1
+            )
+            fig.update_yaxes(
+                title_text='Amplitude',
+                gridcolor=self.COLORS['grid'],
+                zerolinecolor=self.COLORS['grid'],
+                range=y_range,
+                row=row, col=1
+            )
+
+        # 更新子图标题颜色
+        for annotation in fig.layout.annotations:
+            annotation.font.color = self.COLORS['text']
+
+        return fig
+
     def plot_frequency_eye_diagram(self, signal: np.ndarray, sample_rate: float,
                                     samples_per_symbol: int = 8,
                                     title: str = '频率眼图',

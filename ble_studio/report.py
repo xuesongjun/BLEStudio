@@ -193,6 +193,7 @@ class ReportGenerator:
             ('频谱图', 'chart-tx-spectrum', self.viz.plot_spectrum(iq_signal, sample_rate, title='TX 频谱')),
             ('星座图', 'chart-tx-const', self.viz.plot_constellation(iq_signal, title='TX 星座图', downsample=8)),
             ('瞬时频率', 'chart-tx-freq', self.viz.plot_frequency_deviation(iq_signal, sample_rate, title='TX 瞬时频率')),
+            ('IQ 眼图', 'chart-tx-iq-eye', self.viz.plot_iq_eye_diagram(iq_signal, samples_per_symbol, title='TX IQ 眼图', num_traces=80)),
             ('频率眼图', 'chart-tx-eye', self.viz.plot_frequency_eye_diagram(iq_signal, sample_rate, samples_per_symbol, title='TX 频率眼图', num_traces=80)),
         ]
 
@@ -202,6 +203,7 @@ class ReportGenerator:
             ('频谱图', 'chart-rx-spectrum', self.viz.plot_spectrum(noisy_signal, sample_rate, title='RX 频谱')),
             ('星座图', 'chart-rx-const', self.viz.plot_constellation(noisy_signal, title='RX 星座图', downsample=8)),
             ('瞬时频率', 'chart-rx-freq', self.viz.plot_frequency_deviation(noisy_signal, sample_rate, title='RX 瞬时频率')),
+            ('IQ 眼图', 'chart-rx-iq-eye', self.viz.plot_iq_eye_diagram(noisy_signal, samples_per_symbol, title='RX IQ 眼图', num_traces=80)),
             ('频率眼图', 'chart-rx-eye', self.viz.plot_frequency_eye_diagram(noisy_signal, sample_rate, samples_per_symbol, title='RX 频率眼图', num_traces=80)),
         ]
 

@@ -105,10 +105,15 @@ class BLEModulator:
 
     def modulate(self, bits: np.ndarray) -> np.ndarray:
         """
-        GFSK 调制 (MATLAB 兼容实现)
+        GFSK 调制 (MATLAB bleWaveformGenerator 兼容实现)
 
-        使用 Full Response GFSK: 每符号的高斯频率脉冲完全包含在一个符号周期内,
-        没有符号间干扰 (ISI)。这与 MATLAB bleWaveformGenerator 的行为一致。
+        MATLAB 使用 Full Response GFSK: 每符号的高斯频率脉冲完全包含在一个符号周期内。
+        相位在每个符号结束时达到 ±h*π/2 (h=0.5 时为 ±π/4)。
+
+        实现方式:
+        - 每个符号使用相同的相位脉冲形状 (phase_pulse)
+        - 符号之间相位连续累加
+        - 这会产生符号边界处的频率不连续 (Full Response 特性)
 
         Args:
             bits: 输入比特流 (0/1)
@@ -124,23 +129,22 @@ class BLEModulator:
         # NRZ 编码: 0 -> -1, 1 -> +1
         symbols = 2 * bits.astype(np.float64) - 1
 
-        # Full Response GFSK: 每符号独立计算相位
+        # Full Response GFSK: 每符号使用完整的相位脉冲
         phase = np.zeros(nSym * N)
+
+        # 累积相位 (符号间连续)
+        cumulative_phase = 0.0
 
         for i in range(nSym):
             sym = symbols[i]
             start = i * N
 
-            # 计算基础相位 (前一符号的结束相位)
-            if i == 0:
-                base_phase = 0.0
-            else:
-                # 前一符号结束时的相位 = 前一符号最后采样点相位 + 最后一个频率增量
-                base_phase = phase[(i - 1) * N + N - 1] + \
-                             h * symbols[i - 1] * self.freq_pulse[-1] * 2 * np.pi
+            # 当前符号的相位 = 累积相位 + 符号方向 * 相位脉冲
+            phase[start:start + N] = cumulative_phase + h * sym * self.phase_pulse * 2 * np.pi
 
-            # 当前符号的相位 = 基础相位 + 高斯相位脉冲响应
-            phase[start:start + N] = base_phase + h * sym * self.phase_pulse * 2 * np.pi
+            # 更新累积相位: 每个符号贡献 h * sym * 0.5 * 2π = h * sym * π
+            # 因为 phase_pulse 最终积分为 0.5
+            cumulative_phase += h * sym * np.pi
 
         # 添加中心频率偏移
         if config.center_freq != 0:
