@@ -2,16 +2,23 @@
 BLE Studio 示例程序
 演示 BLE 数据包生成、调制、信道传输、解调的完整流程
 支持通过配置文件自定义仿真参数
+支持 IQ 数据导入导出 (Verilog 仿真 / MATLAB)
 """
 
 import os
+import sys
 import yaml
+from pathlib import Path
 from ble_studio import (
     BLEModulator, BLEDemodulator, ReportGenerator,
     ModulatorConfig, DemodulatorConfig, BLEPhyMode,
     create_advertising_packet,
     # RF Test
     RFTestPayloadType, create_test_packet,
+    # IQ 导入导出
+    IQExporter, IQImporter, IQExportConfig, IQImportConfig,
+    IQFormat, NumberFormat,
+    export_iq_txt, export_iq_verilog, import_iq_txt, import_iq_mat,
 )
 
 
@@ -23,6 +30,156 @@ def load_config(config_path: str = "examples/config.yaml") -> dict:
     return {}
 
 
+def export_iq_data(tx_signal, rx_signal, output_dir: str, cfg: dict, sample_rate: float):
+    """导出 IQ 数据到文件 (用于 Verilog 硬件仿真)"""
+    bit_width = int(cfg.get('bit_width', 12))
+    frac_bits = int(cfg.get('frac_bits', 0))
+    iq_format = cfg.get('iq_format', 'two_column')
+    number_format = cfg.get('number_format', 'signed')
+    add_header = cfg.get('add_header', True)
+    verilog_mem = cfg.get('verilog_mem', True)
+
+    # 创建导出配置
+    export_config = IQExportConfig(
+        bit_width=bit_width,
+        frac_bits=frac_bits,
+        iq_format=IQFormat(iq_format),
+        number_format=NumberFormat(number_format),
+        add_header=add_header,
+    )
+    exporter = IQExporter(export_config)
+
+    q_format = f"Q{bit_width - frac_bits}.{frac_bits}"
+    print(f"[IQ导出] 位宽: {bit_width}, 格式: {q_format}")
+
+    # 导出发送端 IQ (无噪声)
+    tx_file = os.path.join(output_dir, 'iq_tx.txt')
+    info = exporter.export_txt(tx_signal, tx_file)
+    print(f"[IQ导出] TX IQ: {tx_file} ({info['samples']} samples)")
+
+    # 导出接收端 IQ (带噪声)
+    rx_file = os.path.join(output_dir, 'iq_rx.txt')
+    info = exporter.export_txt(rx_signal, rx_file)
+    print(f"[IQ导出] RX IQ: {rx_file} ({info['samples']} samples)")
+
+    # 导出 Verilog $readmemh 格式
+    if verilog_mem:
+        tx_mem_file = os.path.join(output_dir, 'iq_tx.mem')
+        exporter.export_verilog_mem(tx_signal, tx_mem_file)
+        print(f"[IQ导出] TX Verilog: {tx_mem_file}")
+
+        rx_mem_file = os.path.join(output_dir, 'iq_rx.mem')
+        exporter.export_verilog_mem(rx_signal, rx_mem_file)
+        print(f"[IQ导出] RX Verilog: {rx_mem_file}")
+
+    # 导出分离的 I/Q 文件 (某些仿真器需要)
+    i_file = os.path.join(output_dir, 'iq_tx_i.txt')
+    q_file = os.path.join(output_dir, 'iq_tx_q.txt')
+    exporter.export_separate_files(tx_signal, i_file, q_file)
+    print(f"[IQ导出] TX I/Q 分离文件: {i_file}, {q_file}")
+
+
+def import_and_demodulate(config: dict):
+    """导入外部 IQ 数据并解调"""
+    iq_import_cfg = config.get('iq_import', {})
+    mod_cfg = config.get('modulation', {})
+    tx_cfg = config.get('tx', {})
+    out_cfg = config.get('output', {})
+
+    file_path = iq_import_cfg.get('file', '')
+    if not file_path or not os.path.exists(file_path):
+        print(f"[错误] IQ 导入文件不存在: {file_path}")
+        return None
+
+    file_type = iq_import_cfg.get('file_type', 'txt')
+    bit_width = int(iq_import_cfg.get('bit_width', 12))
+    frac_bits = int(iq_import_cfg.get('frac_bits', 0))
+    sample_rate = float(mod_cfg.get('sample_rate', 8e6))
+
+    print("=" * 50)
+    print("BLE Studio - IQ 数据导入解调")
+    print("=" * 50)
+    print(f"[导入] 文件: {file_path}")
+    print(f"[导入] 类型: {file_type}, 位宽: {bit_width}, Q格式: Q{bit_width-frac_bits}.{frac_bits}")
+
+    # 导入 IQ 数据
+    if file_type == 'mat':
+        i_var = iq_import_cfg.get('mat_i_var', 'I')
+        q_var = iq_import_cfg.get('mat_q_var', 'Q')
+        complex_var = iq_import_cfg.get('mat_complex_var', '') or None
+        signal, fs = import_iq_mat(file_path, i_var, q_var, complex_var)
+        if fs:
+            sample_rate = fs
+        print(f"[导入] 采样率: {sample_rate/1e6} MHz (从 MAT 文件)")
+    else:
+        iq_format = iq_import_cfg.get('iq_format', 'two_column')
+        number_format = iq_import_cfg.get('number_format', 'signed')
+        skip_lines = int(iq_import_cfg.get('skip_lines', 0))
+
+        signal = import_iq_txt(
+            file_path,
+            bit_width=bit_width,
+            frac_bits=frac_bits,
+            iq_format=iq_format,
+            number_format=number_format,
+            skip_lines=skip_lines
+        )
+
+    print(f"[导入] IQ 长度: {len(signal)} samples")
+
+    # 解调参数
+    phy_mode = getattr(BLEPhyMode, mod_cfg.get('phy_mode', 'LE_1M'))
+    channel = tx_cfg.get('channel', 37)
+
+    # 创建解调器
+    demodulator = BLEDemodulator(DemodulatorConfig(
+        phy_mode=phy_mode,
+        sample_rate=sample_rate,
+        access_address=0x8E89BED6,
+        channel=channel
+    ))
+
+    # 解调
+    result = demodulator.demodulate(signal)
+
+    print(f"[RX] 解调: {'成功' if result.success else '失败'}, CRC: {'通过' if result.crc_valid else '失败'}")
+    if result.success and result.pdu:
+        print(f"[RX] PDU: {result.pdu.hex()}")
+        print(f"[RX] RSSI: {result.rssi:.2f} dB")
+        print(f"[RX] 频偏: {result.freq_offset/1e3:.2f} kHz")
+
+    # 生成报告
+    output_dir = out_cfg.get('dir', 'results')
+    if out_cfg.get('html_report', True):
+        results = {
+            'import': {
+                'file': file_path,
+                'file_type': file_type,
+                'samples': len(signal),
+                'bit_width': bit_width,
+            },
+            'modulation': {
+                'sample_rate_mhz': sample_rate / 1e6,
+            },
+            'demodulation': {
+                'success': result.success,
+                'crc_valid': result.crc_valid,
+                'rssi_db': result.rssi,
+                'freq_offset_khz': result.freq_offset / 1e3,
+                'pdu': result.pdu.hex() if result.pdu else None,
+            }
+        }
+
+        reporter = ReportGenerator(output_dir)
+        # 使用导入的信号生成图表
+        reporter.generate_all(results, signal, signal, None, sample_rate)
+
+    print("=" * 50)
+    print(f"完成! 打开 {output_dir}/index.html 查看结果")
+
+    return result
+
+
 def run_simulation(config: dict = None):
     """运行 BLE 仿真"""
     config = config or {}
@@ -32,6 +189,8 @@ def run_simulation(config: dict = None):
     mod_cfg = config.get('modulation', {})
     ch_cfg = config.get('channel', {})
     out_cfg = config.get('output', {})
+    iq_export_cfg = config.get('iq_export', {})
+    iq_import_cfg = config.get('iq_import', {})
 
     # 发送端参数
     adv_address = bytes.fromhex(tx_cfg.get('adv_address', '11:22:33:44:55:66').replace(':', ''))
@@ -50,6 +209,7 @@ def run_simulation(config: dict = None):
 
     # 输出配置
     output_dir = out_cfg.get('dir', 'results')
+    os.makedirs(output_dir, exist_ok=True)
 
     # ========== 2. 生成数据包 ==========
     print("=" * 50)
@@ -84,7 +244,11 @@ def run_simulation(config: dict = None):
 
     print(f"[信道] SNR: {snr_db} dB, 频偏: {freq_offset/1e3} kHz")
 
-    # ========== 5. 解调 ==========
+    # ========== 5. 导出 IQ 数据 (Verilog 仿真) ==========
+    if iq_export_cfg.get('enabled', False):
+        export_iq_data(iq_signal, impaired_signal, output_dir, iq_export_cfg, sample_rate)
+
+    # ========== 6. 解调 ==========
     demodulator = BLEDemodulator(DemodulatorConfig(
         phy_mode=phy_mode,
         sample_rate=sample_rate,
@@ -100,7 +264,7 @@ def run_simulation(config: dict = None):
     print(f"[RX] Payload: {rx_payload.hex() if rx_payload else 'N/A'}")
     print(f"[结果] 数据匹配: {'OK' if payload_match else 'FAIL'}")
 
-    # ========== 6. 生成报告 ==========
+    # ========== 7. 生成报告 ==========
     if out_cfg.get('html_report', True):
         results = {
             'tx': {
@@ -132,6 +296,7 @@ def run_simulation(config: dict = None):
         reporter = ReportGenerator(output_dir)
         reporter.generate_all(results, iq_signal, impaired_signal, bits, sample_rate)
 
+    print(f"输出目录: {output_dir}")
     print("=" * 50)
     print(f"完成! 打开 {output_dir}/index.html 查看结果")
 
@@ -263,11 +428,19 @@ def run_rf_test(config: dict = None):
 
 
 if __name__ == "__main__":
-    config = load_config()
+    # 支持命令行指定配置文件
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "examples/config.yaml"
+    config = load_config(config_path)
 
-    # 根据配置选择仿真模式
-    mode = config.get('mode', 'advertising')
-    if mode == 'rf_test' or mode == 'dtm':
-        run_rf_test(config)
+    # 检查是否为 IQ 导入模式
+    iq_import_cfg = config.get('iq_import', {})
+    if iq_import_cfg.get('file', ''):
+        # IQ 数据导入解调模式
+        import_and_demodulate(config)
     else:
-        run_simulation(config)
+        # 根据配置选择仿真模式
+        mode = config.get('mode', 'advertising')
+        if mode == 'rf_test' or mode == 'dtm':
+            run_rf_test(config)
+        else:
+            run_simulation(config)

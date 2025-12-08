@@ -56,3 +56,48 @@ output:
   html_report: true
   # 生成图表页面
   html_charts: true
+
+# IQ 数据导出配置 (用于 Verilog 硬件仿真)
+iq_export:
+  # 是否启用 IQ 数据导出
+  enabled: true
+  # 量化位宽 (8, 10, 12, 14, 16 等)
+  bit_width: 12
+  # Q 格式小数位数 (0 表示纯整数, 如 Q12.0)
+  # 例如: frac_bits=11 表示 Q1.11 格式
+  frac_bits: 0
+  # IQ 格式:
+  #   two_column - 每行两列: I Q
+  #   interleaved - 交织: I0 Q0 I1 Q1 ...
+  #   separate - 分离: 所有I 然后 所有Q
+  iq_format: "two_column"
+  # 数值格式:
+  #   signed - 有符号整数
+  #   unsigned - 无符号整数 (补码)
+  #   hex - 十六进制
+  number_format: "signed"
+  # 是否添加文件头注释
+  add_header: true
+  # 导出 Verilog $readmemh 格式
+  verilog_mem: true
+
+# IQ 数据导入配置 (用于解调外部数据)
+iq_import:
+  # 导入文件路径 (留空则不导入)
+  file: ""
+  # 文件类型: txt, mat
+  file_type: "txt"
+  # 量化位宽
+  bit_width: 12
+  # Q 格式小数位数
+  frac_bits: 0
+  # IQ 格式 (txt 文件)
+  iq_format: "two_column"
+  # 数值格式 (txt 文件)
+  number_format: "signed"
+  # 跳过的行数 (头部注释)
+  skip_lines: 0
+  # MAT 文件变量名
+  mat_i_var: "I"
+  mat_q_var: "Q"
+  mat_complex_var: ""  # 如果是复数变量, 填写变量名

@@ -5,11 +5,14 @@ BLE 基带算法平台 - 支持 BLE 数据包生成和解调仿真。
 ## 功能特性
 
 - **数据包生成**: 支持 BLE 4.x/5.x 广播和数据信道包格式
+- **RF Test (DTM)**: 直接测试模式，支持 PRBS9/PRBS15/固定模式测试包
 - **GFSK 调制**: 符合 BLE 规范的高斯频移键控调制
 - **GFSK 解调**: 完整的接收机算法链路
 - **信道模型**: AWGN、瑞利/莱斯衰落、多径、室内信道等
 - **性能测试**: BER/PER 测试、SNR 扫描、灵敏度测试
-- **交互式可视化**: 基于 Plotly 的美观图表，支持缩放、悬停等交互
+- **RF 测试指标**: ΔF1、ΔF2、频率漂移、ICFT、功率等测试仪表盘
+- **IQ 数据导入导出**: 支持 Verilog 硬件仿真、MATLAB .mat 文件
+- **交互式可视化**: 基于 Plotly 的美观图表，支持频率眼图、RF 指标面板等
 
 ## 安装
 
@@ -147,8 +150,25 @@ fig.show()
 fig = viz.plot_frequency_deviation(iq_signal, sample_rate=8e6)
 fig.show()
 
-# 眼图
+# 眼图 (幅度)
 fig = viz.plot_eye_diagram(demod_signal, samples_per_symbol=8)
+fig.show()
+
+# 频率眼图 (GFSK 专用，基于瞬时频率)
+fig = viz.plot_frequency_eye_diagram(iq_signal, sample_rate=8e6, samples_per_symbol=8)
+fig.show()
+
+# RF 测试指标计算
+metrics = viz.calculate_rf_metrics(iq_signal, sample_rate=8e6, samples_per_symbol=8)
+print(f"ΔF1 平均: {metrics['delta_f1_avg']:.1f} kHz")
+print(f"ΔF2 平均: {metrics['delta_f2_avg']:.1f} kHz")
+print(f"频率漂移: {metrics['freq_drift']:.1f} kHz")
+print(f"ICFT: {metrics['icft']:.1f} kHz")
+print(f"平均功率: {metrics['p_avg_dbm']:.1f} dBm")
+print(f"峰值功率: {metrics['p_peak_dbm']:.1f} dBm")
+
+# RF 测试仪表盘 (类似蓝牙测试仪显示)
+fig = viz.plot_rf_metrics_panel(metrics, title='RF 测试指标')
 fig.show()
 
 # 综合仪表板 (一次显示多个图表)
@@ -188,6 +208,156 @@ packet = create_data_packet(
     crc_init=0x123456,
     channel=0
 )
+```
+
+### RF Test (DTM) 射频测试
+
+```python
+from ble_studio.packet import (
+    RFTestPacket, RFTestConfig, RFTestPayloadType,
+    RFTestPayloadGenerator, create_test_packet, BLEPhyMode
+)
+
+# 方式1: 使用便捷函数创建测试包
+packet = create_test_packet(
+    payload_type=RFTestPayloadType.PRBS9,
+    payload_length=37,
+    channel=0,
+    phy_mode=BLEPhyMode.LE_1M
+)
+
+# 生成比特流
+bits = packet.generate()
+
+# 获取测试信息
+info = packet.get_test_info()
+print(f"PHY: {info['phy_mode']}")
+print(f"信道: {info['channel']} ({info['frequency_mhz']} MHz)")
+print(f"负载类型: {info['payload_type']}")
+
+# 方式2: 直接生成 PRBS 序列
+prbs9_data = RFTestPayloadGenerator.generate_prbs9(37)
+prbs15_data = RFTestPayloadGenerator.generate_prbs15(100)
+
+# 方式3: 使用配置对象
+config = RFTestConfig(
+    phy_mode=BLEPhyMode.LE_2M,
+    channel=19,
+    payload_type=RFTestPayloadType.PRBS15,
+    payload_length=255
+)
+packet = RFTestPacket(config)
+
+# 支持的测试负载类型
+# - PRBS9: PRBS9 伪随机序列 (x^9 + x^5 + 1)
+# - PRBS15: PRBS15 伪随机序列 (x^15 + x^14 + 1)
+# - PATTERN_11110000: 0xF0 重复
+# - PATTERN_10101010: 0x55 重复
+# - PATTERN_11111111: 0xFF 全1
+# - PATTERN_00000000: 0x00 全0
+# - PATTERN_00001111: 0x0F 重复
+# - PATTERN_01010101: 0xAA 重复
+```
+
+### IQ 数据导入导出 (Verilog 仿真)
+
+```python
+from ble_studio import (
+    IQExporter, IQImporter, IQExportConfig, IQImportConfig,
+    IQFormat, NumberFormat,
+    export_iq_txt, export_iq_verilog, import_iq_txt, import_iq_mat,
+)
+
+# ========== 导出 IQ 数据 ==========
+
+# 方式1: 便捷函数导出
+info = export_iq_txt(
+    iq_signal,
+    'output/iq_data.txt',
+    bit_width=12,          # 量化位宽
+    frac_bits=0,           # Q 格式小数位 (Q12.0)
+    iq_format='two_column', # 每行: I Q
+    number_format='signed', # 有符号整数
+    add_header=True        # 添加文件头注释
+)
+
+# 导出 Verilog $readmemh 格式
+export_iq_verilog(iq_signal, 'output/iq_data.mem', bit_width=12)
+
+# 方式2: 使用导出器 (更多控制)
+config = IQExportConfig(
+    bit_width=14,                          # 14 位量化
+    frac_bits=11,                          # Q3.11 格式
+    iq_format=IQFormat.INTERLEAVED,        # I0 Q0 I1 Q1 ...
+    number_format=NumberFormat.HEX,        # 十六进制输出
+    add_header=True,
+)
+exporter = IQExporter(config)
+
+# 导出到文本文件
+exporter.export_txt(iq_signal, 'output/iq_hex.txt')
+
+# 导出 I/Q 分离文件
+exporter.export_separate_files(iq_signal, 'output/i_data.txt', 'output/q_data.txt')
+
+# 导出 Verilog 内存格式 (I/Q 打包)
+exporter.export_verilog_mem(iq_signal, 'output/iq.mem')
+
+# ========== 导入 IQ 数据 ==========
+
+# 从文本文件导入
+signal = import_iq_txt(
+    'input/iq_data.txt',
+    bit_width=12,
+    frac_bits=0,
+    iq_format='two_column',
+    number_format='signed',
+    skip_lines=7  # 跳过文件头
+)
+
+# 从 MATLAB .mat 文件导入
+signal, sample_rate = import_iq_mat(
+    'input/ble_signal.mat',
+    i_var='I',           # I 数据变量名
+    q_var='Q',           # Q 数据变量名
+    # complex_var='iq'   # 或使用复数变量名
+)
+
+# 方式2: 使用导入器
+importer = IQImporter(IQImportConfig(
+    bit_width=12,
+    iq_format=IQFormat.TWO_COLUMN,
+    number_format=NumberFormat.SIGNED,
+))
+signal = importer.import_txt('input/iq_data.txt')
+signal = importer.import_verilog_mem('input/iq.mem')
+```
+
+**导出文件格式示例:**
+
+```
+// BLE Studio IQ Data Export
+// Bit Width: 12
+// Q Format: Q12.0
+// Samples: 1856
+//
+1933 226
+1877 511
+1762 824
+...
+```
+
+**Verilog 使用示例:**
+
+```verilog
+reg [23:0] iq_mem [0:1855];  // 12bit I + 12bit Q
+
+initial begin
+    $readmemh("iq_data.mem", iq_mem);
+end
+
+wire [11:0] i_data = iq_mem[addr][23:12];
+wire [11:0] q_data = iq_mem[addr][11:0];
 ```
 
 ### 信道模型
@@ -276,7 +446,13 @@ print(f"灵敏度: {sensitivity:.2f} dB")
 ## 运行示例
 
 ```bash
+# 使用默认配置运行
 python examples/demo.py
+
+# 使用指定配置文件
+python examples/demo.py examples/config_rftest_prbs9.yaml
+python examples/demo.py examples/config_low_snr.yaml
+python examples/demo.py examples/config_ideal.yaml
 ```
 
 输出示例:
@@ -315,14 +491,25 @@ RSSI: -0.12 dB
 BLEStudio/
 ├── ble_studio/
 │   ├── __init__.py       # 包入口
-│   ├── packet.py         # BLE 数据包生成 (广播+数据信道)
+│   ├── packet.py         # BLE 数据包生成 (广播+数据信道+RF Test)
 │   ├── modulator.py      # GFSK 调制器
 │   ├── demodulator.py    # GFSK 解调器
 │   ├── channel.py        # 信道模型
 │   ├── performance.py    # BER/PER 性能测试
-│   └── visualizer.py     # Plotly 可视化
+│   ├── visualizer.py     # Plotly 可视化 (含 RF 测试指标)
+│   ├── report.py         # HTML 报告生成
+│   └── iq_io.py          # IQ 数据导入导出 (Verilog/MATLAB)
 ├── examples/
-│   └── demo.py           # 演示程序
+│   ├── demo.py                    # 演示程序
+│   ├── config.yaml                # 默认配置文件
+│   ├── config_advertising.yaml    # 广播包测试配置
+│   ├── config_rftest_prbs9.yaml   # RF Test PRBS9 配置
+│   ├── config_rftest_2m_prbs15.yaml  # RF Test 2M PRBS15 配置
+│   ├── config_rftest_pattern.yaml # RF Test 固定模式配置
+│   ├── config_low_snr.yaml        # 低 SNR 灵敏度测试配置
+│   ├── config_channel_scan.yaml   # 全信道扫描配置
+│   └── config_ideal.yaml          # 理想信道测试配置
+├── results/              # 输出目录 (HTML 报告, IQ 数据)
 ├── pyproject.toml        # 项目配置
 ├── requirements.txt      # 依赖列表
 └── README.md
@@ -371,8 +558,24 @@ BLEStudio/
 | 星座图 | `plot_constellation()` | IQ 散点图 |
 | 比特流 | `plot_bits()` | 数字信号阶梯图 |
 | 瞬时频率 | `plot_frequency_deviation()` | GFSK 频率偏移 |
-| 眼图 | `plot_eye_diagram()` | 符号间叠加 |
+| 眼图 | `plot_eye_diagram()` | 符号间叠加 (幅度) |
+| 频率眼图 | `plot_frequency_eye_diagram()` | GFSK 瞬时频率眼图 |
+| RF 指标计算 | `calculate_rf_metrics()` | ΔF1/ΔF2/漂移/功率等 |
+| RF 仪表盘 | `plot_rf_metrics_panel()` | 仿真仪器显示面板 |
 | 仪表板 | `create_dashboard()` | 综合多图显示 |
+
+### RF 测试指标说明
+
+| 指标 | 说明 | BLE 规范要求 |
+|------|------|------------|
+| ΔF1 | 相邻 '1' 和 '0' 符号的频率差 | ≥ 185 kHz |
+| ΔF2 | 稳定 '1' 和 '0' 的平均频率差 | ≥ 185 kHz |
+| ΔF2/ΔF1 | 调制质量比 | ≥ 0.8 |
+| Freq Drift | 频率漂移 (包内) | - |
+| Drift Rate | 漂移率 | - |
+| ICFT | 初始载波频率偏差 | ±150 kHz |
+| P AVG | 平均功率 (dBm) | - |
+| P PEAK | 峰值功率 (dBm) | - |
 
 ## 信道模型
 
