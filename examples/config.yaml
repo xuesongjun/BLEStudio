@@ -1,0 +1,38 @@
+# BLE Studio 仿真配置文件
+# 修改此文件后运行 demo.py 即可
+
+# 发送端配置
+tx:
+  # 广播地址 (6字节, 十六进制)
+  adv_address: "11:22:33:44:55:66"
+  # 广播数据 (十六进制字符串)
+  adv_data: "0201060908424c455374756469"
+  # 广播信道 (37, 38, 39)
+  channel: 37
+
+# 调制参数
+modulation:
+  # PHY 模式: LE_1M, LE_2M, LE_CODED_S2, LE_CODED_S8
+  phy_mode: "LE_1M"
+  # 采样率 (Hz)
+  sample_rate: 8.0e6
+  # 调制指数 (0.45-0.55)
+  modulation_index: 0.5
+  # 高斯滤波器 BT 积
+  bt: 0.5
+
+# 信道参数
+channel:
+  # 信噪比 (dB) - 建议 >= 12 dB 以保证稳定解调
+  snr_db: 15
+  # 载波频偏 (Hz)
+  freq_offset: 50.0e3
+
+# 输出配置
+output:
+  # 输出目录
+  dir: "results"
+  # 生成 HTML 报告
+  html_report: true
+  # 生成图表页面
+  html_charts: true
