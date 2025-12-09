@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 import numpy as np
 
 from .visualizer import BLEVisualizer
+from .measure import calculate_rf_metrics
 
 
 def _decode_plotly_bdata(fig_dict):
@@ -156,7 +157,7 @@ class ReportGenerator:
 
         # 计算 RF 测试指标 - 使用 RX 信号, 传入 payload_type
         payload_type = rf_test.get('payload_type', tx.get('test_mode', 'ADV'))
-        rf_metrics = self.viz.calculate_rf_metrics(
+        rf_metrics = calculate_rf_metrics(
             rx_signal, sample_rate, samples_per_symbol,
             payload_type=payload_type
         )

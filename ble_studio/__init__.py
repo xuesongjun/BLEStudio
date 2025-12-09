@@ -27,6 +27,7 @@ from .packet import (
 from .modulator import BLEModulator, ModulatorConfig
 from .demodulator import BLEDemodulator, DemodulatorConfig
 from .visualizer import BLEVisualizer, plot_ble_signal
+from .measure import RFMetrics, RFMeasure, calculate_rf_metrics
 from .report import ReportGenerator
 from .channel import (
     BLEChannel,

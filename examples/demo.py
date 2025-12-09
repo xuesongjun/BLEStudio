@@ -28,7 +28,7 @@ from ble_studio import (
     BLEChannel, ChannelConfig, ChannelType,
     IQExporter, IQExportConfig, IQFormat, NumberFormat,
     import_iq_txt, import_iq_mat,
-    BLEVisualizer,
+    calculate_rf_metrics,
 )
 
 
@@ -305,10 +305,9 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
 
     # 7. RF 指标 (仅 RF Test 模式)
     if cfg.mode == 'rf_test':
-        viz = BLEVisualizer()
         # 根据实际采样率计算 samples_per_symbol
         actual_sps = int(sample_rate / modulator.symbol_rate)
-        rf_metrics = viz.calculate_rf_metrics(
+        rf_metrics = calculate_rf_metrics(
             channel_out, sample_rate, actual_sps,
             payload_type=test_info['payload_type']
         )
