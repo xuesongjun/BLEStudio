@@ -227,7 +227,9 @@ class BLEVisualizer:
     def plot_spectrum(self, signal: np.ndarray, sample_rate: float,
                       title: str = '频谱图',
                       fft_size: int = 4096,
-                      center_freq: float = 0.0) -> go.Figure:
+                      center_freq: float = 0.0,
+                      show_mask: bool = False,
+                      phy_mode: str = 'LE_1M') -> go.Figure:
         """
         绘制频谱图
 
@@ -237,6 +239,8 @@ class BLEVisualizer:
             title: 图表标题
             fft_size: FFT 点数
             center_freq: 中心频率 (Hz)
+            show_mask: 是否显示 BLE 频谱模版
+            phy_mode: PHY 模式 ('LE_1M', 'LE_2M', 'LE_Coded')
 
         Returns:
             Plotly Figure 对象
@@ -257,7 +261,7 @@ class BLEVisualizer:
 
         # 功率谱密度 (dB)
         psd = 20 * np.log10(np.abs(spectrum) + 1e-10)
-        psd = psd - np.max(psd)  # 归一化
+        psd = psd - np.max(psd)  # 归一化到峰值 0 dB
 
         fig = go.Figure()
 
@@ -280,10 +284,153 @@ class BLEVisualizer:
             hovertemplate='频率: %{x:.3f} MHz<br>功率: %{y:.1f} dB<extra></extra>'
         ))
 
+        # 添加 BLE 频谱模版
+        if show_mask:
+            mask_result = self._add_spectrum_mask(fig, freq_mhz, psd, phy_mode)
+            # 更新标题显示 PASS/FAIL
+            if mask_result['pass']:
+                title = f"{title} ✓ PASS"
+            else:
+                title = f"{title} ✗ FAIL (违规: {mask_result['violation_count']})"
+
         self._apply_layout(fig, title, '频率 (MHz)', '相对功率 (dB)')
         fig.update_yaxes(range=[-80, 5])
 
         return fig
+
+    def _get_ble_spectrum_mask(self, phy_mode: str = 'LE_1M') -> list:
+        """
+        获取 BLE 频谱模版定义 (台阶状)
+
+        根据 Bluetooth Core Spec v5.x, Volume 6, Part A, Section 3:
+        - LE 1M PHY: ±500kHz 带内, -20dBc@±1.5MHz, -30dBc@±2.5MHz, -40dBc@≥3MHz
+        - LE 2M PHY: ±1MHz 带内, -20dBc@±2MHz, -30dBc@±3MHz, -40dBc@≥4MHz
+
+        Returns:
+            频谱模版点列表 [(freq_offset_mhz, level_dbc), ...] - 台阶状
+        """
+        if phy_mode == 'LE_2M':
+            # LE 2M PHY 频谱模版 (台阶状)
+            return [
+                (-5.0, -40),
+                (-4.0, -40), (-4.0, -30),
+                (-3.0, -30), (-3.0, -20),
+                (-2.0, -20), (-2.0, 0),
+                (-1.0, 0),
+                (1.0, 0),
+                (2.0, 0), (2.0, -20),
+                (3.0, -20), (3.0, -30),
+                (4.0, -30), (4.0, -40),
+                (5.0, -40)
+            ]
+        else:
+            # LE 1M PHY 频谱模版 (台阶状)
+            # BLE RF-PHY Test Specification 定义的限制
+            return [
+                (-4.0, -40),
+                (-3.0, -40), (-3.0, -30),
+                (-2.5, -30), (-2.5, -20),
+                (-1.5, -20), (-1.5, 0),
+                (-0.5, 0),
+                (0.5, 0),
+                (1.5, 0), (1.5, -20),
+                (2.5, -20), (2.5, -30),
+                (3.0, -30), (3.0, -40),
+                (4.0, -40)
+            ]
+
+    def _add_spectrum_mask(self, fig: go.Figure, freq_mhz: np.ndarray,
+                           psd: np.ndarray, phy_mode: str = 'LE_1M') -> dict:
+        """
+        在频谱图上添加 BLE 频谱模版并检测违规
+
+        Args:
+            fig: Plotly Figure 对象
+            freq_mhz: 频率数组 (MHz)
+            psd: 功率谱密度数组 (dB, 已归一化)
+            phy_mode: PHY 模式
+
+        Returns:
+            检测结果字典 {'pass': bool, 'violation_count': int, 'violations': list}
+        """
+        mask_points = self._get_ble_spectrum_mask(phy_mode)
+
+        # 提取模版的 x, y 坐标
+        mask_freq = [p[0] for p in mask_points]
+        mask_level = [p[1] for p in mask_points]
+
+        # 根据主题选择模版颜色
+        if self.theme == 'instrument':
+            mask_color = 'rgba(255, 0, 0, 0.8)'  # 亮红色
+            mask_fill = 'rgba(255, 0, 0, 0.1)'
+            violation_color = 'rgba(255, 0, 0, 1.0)'
+        else:
+            mask_color = 'rgba(255, 77, 79, 0.8)'  # 红色
+            mask_fill = 'rgba(255, 77, 79, 0.1)'
+            violation_color = 'rgba(255, 77, 79, 1.0)'
+
+        # 绘制频谱模版
+        fig.add_trace(go.Scatter(
+            x=mask_freq,
+            y=mask_level,
+            mode='lines',
+            name='BLE 频谱模版',
+            line=dict(color=mask_color, width=2, dash='dash'),
+            hovertemplate='频偏: %{x:.1f} MHz<br>限制: %{y:.0f} dBc<extra></extra>'
+        ))
+
+        # 检测违规点
+        violations = []
+        violation_freq = []
+        violation_psd = []
+
+        # 创建模版插值函数 (台阶状: 使用 'previous' 插值)
+        from scipy.interpolate import interp1d
+        mask_interp = interp1d(mask_freq, mask_level, kind='previous',
+                               bounds_error=False, fill_value=-40)
+
+        # 检查每个频率点是否超过模版
+        for i, (f, p) in enumerate(zip(freq_mhz, psd)):
+            # 只检查模版覆盖范围内的频率
+            if mask_freq[0] <= f <= mask_freq[-1]:
+                mask_limit = mask_interp(f)
+                if p > mask_limit + 0.5:  # 0.5 dB 容差
+                    violations.append({
+                        'freq_mhz': f,
+                        'power_db': p,
+                        'limit_db': float(mask_limit),
+                        'excess_db': p - mask_limit
+                    })
+                    violation_freq.append(f)
+                    violation_psd.append(p)
+
+        # 标记违规点
+        if violation_freq:
+            # 限制显示的违规点数量，避免图表过于拥挤
+            max_markers = 50
+            if len(violation_freq) > max_markers:
+                step = len(violation_freq) // max_markers
+                violation_freq = violation_freq[::step]
+                violation_psd = violation_psd[::step]
+
+            fig.add_trace(go.Scatter(
+                x=violation_freq,
+                y=violation_psd,
+                mode='markers',
+                name=f'违规点 ({len(violations)})',
+                marker=dict(
+                    color=violation_color,
+                    size=6,
+                    symbol='x'
+                ),
+                hovertemplate='频率: %{x:.3f} MHz<br>功率: %{y:.1f} dB<br>超标<extra></extra>'
+            ))
+
+        return {
+            'pass': len(violations) == 0,
+            'violation_count': len(violations),
+            'violations': violations[:10]  # 只返回前 10 个违规详情
+        }
 
     def plot_spectrogram(self, signal: np.ndarray, sample_rate: float,
                          title: str = '时频谱图',

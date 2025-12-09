@@ -139,7 +139,16 @@ class ReportGenerator:
         fig_iq = self.viz.plot_iq_combined(rx_signal, sample_rate, title='IQ 时域波形', max_samples=max_samples_iq)
         fig_iq.update_layout(height=280, margin=dict(l=50, r=30, t=40, b=40))
 
-        fig_spectrum = self.viz.plot_spectrum(rx_signal, sample_rate, title='频谱图')
+        # 获取 PHY 模式用于频谱模版
+        phy_mode = mod.get('phy_mode', 'LE_1M')
+        if '2M' in str(phy_mode):
+            phy_mode_str = 'LE_2M'
+        else:
+            phy_mode_str = 'LE_1M'
+
+        # 频谱图 - 启用 BLE 频谱模版
+        fig_spectrum = self.viz.plot_spectrum(rx_signal, sample_rate, title='频谱图',
+                                               show_mask=True, phy_mode=phy_mode_str)
         fig_spectrum.update_layout(height=280, margin=dict(l=50, r=30, t=40, b=40))
 
         fig_const = self.viz.plot_constellation(rx_signal, title='星座图', downsample=8)
@@ -198,10 +207,17 @@ class ReportGenerator:
         max_samples_iq = min(int(sample_rate * display_duration_us / 1e6), len(noisy_signal))
         max_samples_iq = max(max_samples_iq, 2000)  # 至少显示 2000 点
 
+        # 获取 PHY 模式用于频谱模版
+        phy_mode = mod.get('phy_mode', 'LE_1M')
+        if '2M' in str(phy_mode):
+            phy_mode_str = 'LE_2M'
+        else:
+            phy_mode_str = 'LE_1M'
+
         # TX 端图表 (理想信号)
         tx_charts = [
             ('IQ 时域波形', 'chart-tx-iq', self.viz.plot_iq_combined(iq_signal, sample_rate, title='TX IQ 波形', max_samples=max_samples_iq)),
-            ('频谱图', 'chart-tx-spectrum', self.viz.plot_spectrum(iq_signal, sample_rate, title='TX 频谱')),
+            ('频谱图', 'chart-tx-spectrum', self.viz.plot_spectrum(iq_signal, sample_rate, title='TX 频谱', show_mask=True, phy_mode=phy_mode_str)),
             ('星座图', 'chart-tx-const', self.viz.plot_constellation(iq_signal, title='TX 星座图', downsample=8)),
             ('瞬时频率', 'chart-tx-freq', self.viz.plot_frequency_deviation(iq_signal, sample_rate, title='TX 瞬时频率')),
             ('IQ 眼图', 'chart-tx-iq-eye', self.viz.plot_iq_eye_diagram(iq_signal, samples_per_symbol, title='TX IQ 眼图', num_traces=80)),
@@ -211,7 +227,7 @@ class ReportGenerator:
         # RX 端图表 (经过信道后的信号)
         rx_charts = [
             ('IQ 时域波形', 'chart-rx-iq', self.viz.plot_iq_combined(noisy_signal, sample_rate, title='RX IQ 波形', max_samples=max_samples_iq)),
-            ('频谱图', 'chart-rx-spectrum', self.viz.plot_spectrum(noisy_signal, sample_rate, title='RX 频谱')),
+            ('频谱图', 'chart-rx-spectrum', self.viz.plot_spectrum(noisy_signal, sample_rate, title='RX 频谱', show_mask=True, phy_mode=phy_mode_str)),
             ('星座图', 'chart-rx-const', self.viz.plot_constellation(noisy_signal, title='RX 星座图', downsample=8)),
             ('瞬时频率', 'chart-rx-freq', self.viz.plot_frequency_deviation(noisy_signal, sample_rate, title='RX 瞬时频率')),
             ('IQ 眼图', 'chart-rx-iq-eye', self.viz.plot_iq_eye_diagram(noisy_signal, samples_per_symbol, title='RX IQ 眼图', num_traces=80)),
