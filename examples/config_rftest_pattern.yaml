@@ -11,13 +11,19 @@ tx:
   sample_rate: 8.0e6
   modulation_index: 0.5
   bt: 0.5
-  payload_type: "PATTERN_10101010"  # 0x55
+  #payload_type: "PATTERN_10101010"  # 0x55 pattern
+  #payload_type: "PATTERN_11110000"  # 0xF0 pattern
+  payload_type: "PRBS9"
   payload_length: 37
   whitening: false
 
-# 信道模型 (bypass)
+# 信道模型
 channel:
-  snr_db: inf
+  # Eb/N0 (dB) - 每比特能量与噪声功率谱密度之比
+  # LE 1M @ 8Msps: 带内 SNR = Eb/N0 - 9 dB
+  # 例如: ebn0_db=16 → 带内 SNR=7 dB
+  ebn0_db: .inf  # 无噪声 (bypass 信道)
+  type: "awgn"
   freq_offset: 0
 
 # 数据导出

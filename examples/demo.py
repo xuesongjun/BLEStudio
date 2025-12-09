@@ -95,7 +95,8 @@ class SimConfig:
             payload_length=int(tx.get('payload_length', 37)),
             whitening=bool(tx.get('whitening', False)),
             channel_type=ChannelType(ch.get('type', 'awgn')),
-            snr_db=float(ch.get('snr_db', 15)),
+            # 支持 ebn0_db (新) 或 snr_db (旧) 字段名
+            snr_db=float(ch.get('ebn0_db', ch.get('snr_db', 15))),
             freq_offset=float(ch.get('freq_offset', 0)),
             doppler_freq=float(ch.get('doppler_freq', 1.0)),
             k_factor=float(ch.get('k_factor', 4.0)),
@@ -266,13 +267,14 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
         channel_model = BLEChannel(ChannelConfig(
             channel_type=cfg.channel_type,
             sample_rate=sample_rate,
+            symbol_rate=modulator.symbol_rate,  # 传递符号率用于 Eb/N0 计算
             snr_db=cfg.snr_db if not np.isinf(cfg.snr_db) else 100,
             frequency_offset=cfg.freq_offset,
             doppler_freq=cfg.doppler_freq,
             k_factor=cfg.k_factor,
         ))
         channel_out = channel_model.apply(channel_in)
-        ch_info = f"[信道] {cfg.channel_type.value.upper()}, SNR={cfg.snr_db} dB"
+        ch_info = f"[信道] {cfg.channel_type.value.upper()}, Eb/N0={cfg.snr_db} dB"
         if cfg.freq_offset != 0:
             ch_info += f", 频偏={cfg.freq_offset/1e3:.1f} kHz"
         if cfg.channel_type in (ChannelType.RAYLEIGH, ChannelType.RICIAN):

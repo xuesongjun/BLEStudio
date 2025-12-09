@@ -675,7 +675,8 @@ class BLEVisualizer:
     def plot_iq_eye_diagram(self, signal: np.ndarray, samples_per_symbol: int,
                             title: str = 'IQ 眼图',
                             num_traces: int = 100,
-                            interpolation_factor: int = 8) -> go.Figure:
+                            interpolation_factor: int = 8,
+                            sample_rate: float = 8e6) -> go.Figure:
         """
         绘制 IQ 眼图 (MATLAB eyediagram 风格)
 
@@ -688,6 +689,7 @@ class BLEVisualizer:
             title: 图表标题
             num_traces: 叠加轨迹数
             interpolation_factor: 插值倍数 (使曲线更平滑)
+            sample_rate: 采样率 (Hz)，用于计算真实时间轴
 
         Returns:
             Plotly Figure 对象 (2 行子图)
@@ -699,10 +701,15 @@ class BLEVisualizer:
         trace_len = 2 * samples_per_symbol
         num_traces = min(num_traces, len(signal) // samples_per_symbol - 1)
 
-        # 原始时间轴
-        t_orig = np.linspace(-1, 1, trace_len)
+        # 符号周期 (秒)
+        symbol_period = samples_per_symbol / sample_rate
+        # 时间轴范围: [-T, T] 其中 T = 符号周期 (与 MATLAB eyediagram 一致)
+        t_max = symbol_period * 1e6  # 转换为微秒，与 MATLAB 显示一致
+
+        # 原始时间轴 (微秒)
+        t_orig = np.linspace(-t_max, t_max, trace_len)
         # 插值后的时间轴 (更密集的点使曲线更平滑)
-        t_interp = np.linspace(-1, 1, trace_len * interpolation_factor)
+        t_interp = np.linspace(-t_max, t_max, trace_len * interpolation_factor)
 
         # 创建 2 行子图
         fig = make_subplots(
@@ -767,13 +774,18 @@ class BLEVisualizer:
         max_amp = max(np.max(np.abs(signal.real)), np.max(np.abs(signal.imag)))
         y_range = [-1.1, 1.1] if max_amp <= 1.0 else [-max_amp * 1.1, max_amp * 1.1]
 
+        # X 轴刻度 (与 MATLAB 一致: 显示为 ×10^-6 格式)
+        # t_max 已经是微秒
+        tick_vals = [-t_max, -t_max/2, 0, t_max/2, t_max]
+
         for row in [1, 2]:
             fig.update_xaxes(
-                title_text='Time' if row == 2 else '',
+                title_text='Time (×10⁻⁶ s)' if row == 2 else '',
                 gridcolor=self.COLORS['grid'],
                 zerolinecolor=self.COLORS['grid'],
-                range=[-1, 1],
-                tickvals=[-1, -0.5, 0, 0.5, 1],
+                range=[-t_max, t_max],
+                tickvals=tick_vals,
+                tickformat='.1f',
                 row=row, col=1
             )
             fig.update_yaxes(

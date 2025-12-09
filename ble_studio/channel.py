@@ -25,9 +25,10 @@ class ChannelConfig:
     """信道配置"""
     channel_type: ChannelType = ChannelType.AWGN
     sample_rate: float = 8e6
+    symbol_rate: float = 1e6       # 符号率 (Hz), 用于 Eb/N0 计算
 
-    # AWGN 参数
-    snr_db: float = 20.0           # 信噪比 (dB)
+    # AWGN 参数 - 使用 Eb/N0 (每比特能量/噪声功率谱密度)
+    snr_db: float = 20.0           # Eb/N0 (dB), 保留字段名兼容配置文件
 
     # 频偏参数
     frequency_offset: float = 0.0   # 载波频偏 (Hz)
@@ -62,15 +63,48 @@ class ChannelConfig:
 
 
 class AWGNChannel:
-    """AWGN 信道"""
+    """AWGN 信道 (基于 Eb/N0)
 
-    def __init__(self, snr_db: float):
-        self.snr_db = snr_db
+    使用 Eb/N0 (每比特能量/噪声功率谱密度) 作为信噪比指标:
+    - Eb/N0 是物理层性能的标准度量
+    - 噪声功率根据 symbol_rate/sample_rate 自动调整
+    - LE 2M 在相同 Eb/N0 下会比 LE 1M 有更高的带内 SNR (因为带宽更大)
+
+    换算关系:
+    - SNR(带内) = Eb/N0 × (symbol_rate / sample_rate)
+    - LE 1M @ 8Msps: SNR = Eb/N0 - 9 dB
+    - LE 2M @ 8Msps: SNR = Eb/N0 - 6 dB
+    """
+
+    def __init__(self, ebn0_db: float, sample_rate: float = 8e6,
+                 symbol_rate: float = 1e6):
+        self.ebn0_db = ebn0_db
+        self.sample_rate = sample_rate
+        self.symbol_rate = symbol_rate
 
     def apply(self, signal: np.ndarray) -> np.ndarray:
-        """应用 AWGN 噪声"""
+        """应用 AWGN 噪声
+
+        Eb/N0 = (信号功率 / 符号率) / (噪声功率谱密度)
+        噪声功率 = N0 × 采样率 (噪声带宽 = 采样率)
+
+        对于 GFSK:
+        - Eb/N0 ≈ SNR × (采样率 / 符号率)
+        - SNR = Eb/N0 × (符号率 / 采样率)
+
+        示例:
+        - LE 1M @ 8Msps: samples_per_symbol = 8, SNR = Eb/N0 / 8
+        - LE 2M @ 8Msps: samples_per_symbol = 4, SNR = Eb/N0 / 4
+        - 相同 Eb/N0 时, LE 2M 的带内 SNR 高 3 dB
+        """
         signal_power = np.mean(np.abs(signal) ** 2)
-        noise_power = signal_power / (10 ** (self.snr_db / 10))
+
+        # Eb/N0 → 带内 SNR
+        samples_per_symbol = self.sample_rate / self.symbol_rate
+        ebn0_linear = 10 ** (self.ebn0_db / 10)
+        snr_linear = ebn0_linear / samples_per_symbol
+
+        noise_power = signal_power / snr_linear
 
         noise = np.sqrt(noise_power / 2) * (
             np.random.randn(len(signal)) + 1j * np.random.randn(len(signal))
@@ -447,7 +481,11 @@ class BLEChannel:
             )
 
         # 7. AWGN (最后添加)
-        self.impairments.append(AWGNChannel(cfg.snr_db))
+        self.impairments.append(AWGNChannel(
+            cfg.snr_db,
+            sample_rate=cfg.sample_rate,
+            symbol_rate=cfg.symbol_rate
+        ))
 
     def apply(self, signal: np.ndarray) -> np.ndarray:
         """
@@ -466,13 +504,18 @@ class BLEChannel:
 
         return output
 
-    def set_snr(self, snr_db: float):
-        """动态设置 SNR"""
-        self.config.snr_db = snr_db
+    def set_snr(self, ebn0_db: float):
+        """动态设置 Eb/N0"""
+        self.config.snr_db = ebn0_db
         # 更新 AWGN 信道
+        cfg = self.config
         for i, imp in enumerate(self.impairments):
             if isinstance(imp, AWGNChannel):
-                self.impairments[i] = AWGNChannel(snr_db)
+                self.impairments[i] = AWGNChannel(
+                    ebn0_db,
+                    sample_rate=cfg.sample_rate,
+                    symbol_rate=cfg.symbol_rate
+                )
 
 
 def create_awgn_channel(snr_db: float) -> BLEChannel:

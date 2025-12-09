@@ -99,8 +99,12 @@ class BLEModulator:
         # 缩放到采样率
         g = Ts * R_up * g_wrap
 
-        # 最终相位脉冲 q
-        self.phase_pulse = np.concatenate([[0], np.cumsum(g[:-1])])
+        # 最终相位脉冲 q (与 MATLAB gmskmodparams 一致)
+        # phase_pulse 有 N+1 个点: [0, cumsum(g)]
+        # phase_pulse[0] = 0, phase_pulse[N] = 0.5
+        # 调制时: phase = h * sym * phase_pulse * 2π
+        # 符号结束时 (sample N) 相位变化 = h * 0.5 * 2π = h * π
+        self.phase_pulse = np.concatenate([[0], np.cumsum(g)])  # N+1 个点
         self.freq_pulse = g
 
     def modulate(self, bits: np.ndarray) -> np.ndarray:
@@ -140,11 +144,14 @@ class BLEModulator:
             start = i * N
 
             # 当前符号的相位 = 累积相位 + 符号方向 * 相位脉冲
-            phase[start:start + N] = cumulative_phase + h * sym * self.phase_pulse * 2 * np.pi
+            # phase_pulse 有 N+1 个点, 使用前 N 个点 [0:N]
+            # phase = h * sym * phase_pulse[0:N] * 2π
+            phase[start:start + N] = cumulative_phase + h * sym * self.phase_pulse[:N] * 2 * np.pi
 
-            # 更新累积相位: 每个符号贡献 h * sym * 0.5 * 2π = h * sym * π
-            # 因为 phase_pulse 最终积分为 0.5
-            cumulative_phase += h * sym * np.pi
+            # 更新累积相位: 每个符号贡献 h * sym * phase_pulse[N] * 2π
+            # phase_pulse[N] = 0.5, 所以每符号相位变化 = h * 0.5 * 2π = h * π
+            # 当 h=0.5 时, 每符号相位变化 = ±π/2
+            cumulative_phase += h * sym * self.phase_pulse[N] * 2 * np.pi
 
         # 添加中心频率偏移
         if config.center_freq != 0:
