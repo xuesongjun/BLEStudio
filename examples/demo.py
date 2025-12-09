@@ -58,8 +58,11 @@ class SimConfig:
     whitening: bool = False
 
     # 信道参数
+    channel_type: ChannelType = ChannelType.AWGN
     snr_db: float = 15.0
     freq_offset: float = 0.0
+    doppler_freq: float = 1.0      # 多普勒频率 (Hz)
+    k_factor: float = 4.0          # 莱斯 K 因子
 
     # 输出配置
     output_dir: str = "results"
@@ -91,8 +94,11 @@ class SimConfig:
             payload_type=getattr(RFTestPayloadType, tx.get('payload_type', 'PRBS9')),
             payload_length=int(tx.get('payload_length', 37)),
             whitening=bool(tx.get('whitening', False)),
+            channel_type=ChannelType(ch.get('type', 'awgn')),
             snr_db=float(ch.get('snr_db', 15)),
             freq_offset=float(ch.get('freq_offset', 0)),
+            doppler_freq=float(ch.get('doppler_freq', 1.0)),
+            k_factor=float(ch.get('k_factor', 4.0)),
             output_dir=out.get('dir', 'results'),
             html_report=out.get('html_report', True),
             theme=out.get('theme', 'instrument'),
@@ -253,18 +259,27 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
         sample_rate = cfg.sample_rate
 
     # 4. 信道模型
-    if np.isinf(cfg.snr_db) and cfg.freq_offset == 0:
+    if np.isinf(cfg.snr_db) and cfg.freq_offset == 0 and cfg.channel_type == ChannelType.AWGN:
         channel_out = channel_in.copy()
         print(f"[信道] Bypass")
     else:
         channel_model = BLEChannel(ChannelConfig(
-            channel_type=ChannelType.AWGN,
+            channel_type=cfg.channel_type,
             sample_rate=sample_rate,
             snr_db=cfg.snr_db if not np.isinf(cfg.snr_db) else 100,
             frequency_offset=cfg.freq_offset,
+            doppler_freq=cfg.doppler_freq,
+            k_factor=cfg.k_factor,
         ))
         channel_out = channel_model.apply(channel_in)
-        print(f"[信道] SNR={cfg.snr_db} dB, 频偏={cfg.freq_offset/1e3:.1f} kHz")
+        ch_info = f"[信道] {cfg.channel_type.value.upper()}, SNR={cfg.snr_db} dB"
+        if cfg.freq_offset != 0:
+            ch_info += f", 频偏={cfg.freq_offset/1e3:.1f} kHz"
+        if cfg.channel_type in (ChannelType.RAYLEIGH, ChannelType.RICIAN):
+            ch_info += f", Doppler={cfg.doppler_freq} Hz"
+        if cfg.channel_type == ChannelType.RICIAN:
+            ch_info += f", K={cfg.k_factor}"
+        print(ch_info)
 
     # 5. 信道出口: 导出 IQ (可选)
     if cfg.io_output and cfg.io_output.get('export_tx', False):
@@ -291,8 +306,10 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
     # 7. RF 指标 (仅 RF Test 模式)
     if cfg.mode == 'rf_test':
         viz = BLEVisualizer()
+        # 根据实际采样率计算 samples_per_symbol
+        actual_sps = int(sample_rate / modulator.symbol_rate)
         rf_metrics = viz.calculate_rf_metrics(
-            channel_out, sample_rate, modulator.samples_per_symbol,
+            channel_out, sample_rate, actual_sps,
             test_info['payload_type']
         )
         print(f"[RF] ΔF1={rf_metrics['delta_f1_avg']:.1f}kHz, "
@@ -312,7 +329,13 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
                 'modulation_index': cfg.modulation_index,
                 'bt': cfg.bt,
             },
-            'channel': {'snr_db': cfg.snr_db, 'freq_offset_khz': cfg.freq_offset / 1e3},
+            'channel': {
+                'type': cfg.channel_type.value,
+                'snr_db': cfg.snr_db,
+                'freq_offset_khz': cfg.freq_offset / 1e3,
+                'doppler_freq': cfg.doppler_freq,
+                'k_factor': cfg.k_factor,
+            },
             'demodulation': {
                 'success': result.success, 'crc_valid': result.crc_valid,
                 'rssi_db': result.rssi, 'freq_offset_khz': result.freq_offset / 1e3,

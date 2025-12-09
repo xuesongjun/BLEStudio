@@ -344,6 +344,7 @@ class ReportGenerator:
             </div>
             <div class="status-card">
                 <h3>仿真参数</h3>
+                <div class="status-row"><span class="label">信道</span><span class="value">{ch.get('type', 'awgn').upper()}</span></div>
                 <div class="status-row"><span class="label">SNR</span><span class="value">{ch.get('snr_db', 'N/A')} dB</span></div>
                 <div class="status-row"><span class="label">采样率</span><span class="value">{mod.get('sample_rate_mhz', 'N/A')} MHz</span></div>
                 <div class="status-row"><span class="label">调制指数</span><span class="value">{mod.get('modulation_index', 'N/A')}</span></div>
@@ -399,8 +400,18 @@ class ReportGenerator:
 
     def _charts_template(self, tx_charts, rx_charts, common_charts, channel_info):
         """图表页面模板 - TX → 信道 → RX 布局"""
+        channel_type = channel_info.get('type', 'awgn').upper()
         snr_db = channel_info.get('snr_db', 'N/A')
         freq_offset = channel_info.get('freq_offset_khz', 0)
+        doppler_freq = channel_info.get('doppler_freq', 0)
+        k_factor = channel_info.get('k_factor', 0)
+
+        # 构建额外参数显示
+        extra_params = ''
+        if channel_type in ('RAYLEIGH', 'RICIAN'):
+            extra_params += f'<div class="param">Doppler: <span class="value">{doppler_freq} Hz</span></div>'
+        if channel_type == 'RICIAN':
+            extra_params += f'<div class="param">K: <span class="value">{k_factor}</span></div>'
 
         return f'''<!DOCTYPE html>
 <html lang="zh-CN">
@@ -500,8 +511,10 @@ class ReportGenerator:
             <div class="channel-arrow">→</div>
             <div class="channel-box">
                 <h4>信道模型</h4>
+                <div class="param">类型: <span class="value">{channel_type}</span></div>
                 <div class="param">SNR: <span class="value">{snr_db} dB</span></div>
                 <div class="param">频偏: <span class="value">{freq_offset} kHz</span></div>
+                {extra_params}
             </div>
             <div class="channel-arrow">→</div>
         </div>

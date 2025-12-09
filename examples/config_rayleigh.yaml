@@ -1,0 +1,36 @@
+# BLE Studio - 瑞利衰落信道测试
+#
+# 支持的信道类型:
+#   awgn        - 加性高斯白噪声 (默认)
+#   flat_fading - 平坦衰落
+#   rayleigh    - 瑞利衰落 (无直射路径)
+#   rician      - 莱斯衰落 (有直射路径)
+#   multipath   - 多径衰落
+#   ble_indoor  - BLE 室内信道模型
+
+# 公共参数
+common:
+  mode: "rf_test"
+  channel: 0
+
+# 发送端
+tx:
+  phy_mode: "LE_1M"
+  sample_rate: 8.0e6
+  modulation_index: 0.5
+  bt: 0.5
+  payload_type: "PRBS9"
+  payload_length: 37
+  whitening: false
+
+# 信道模型 (瑞利衰落)
+channel:
+  type: "rayleigh"       # 信道类型
+  snr_db: 20             # 信噪比
+  freq_offset: 0         # 频偏
+  doppler_freq: 10.0     # 多普勒频率 (Hz), 模拟移动速度
+
+# 输出
+output:
+  dir: "results"
+  html_report: true

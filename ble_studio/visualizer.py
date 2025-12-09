@@ -731,15 +731,22 @@ class BLEVisualizer:
         Returns:
             RF 测试指标字典
         """
-        # ========== 0. 检测并跳过前导空白区域 ==========
-        # 导入的外部信号可能有前导空白 (amplitude=0)，会导致相位计算异常
+        # ========== 0. 检测并跳过前导/尾部空白区域 ==========
+        # 导入的外部信号可能有空白区域 (amplitude=0)，会导致相位计算异常
         amplitude = np.abs(signal)
         threshold = np.max(amplitude) * 0.01  # 1% 阈值
-        signal_start = np.argmax(amplitude > threshold)
+        valid_mask = amplitude > threshold
 
-        # 如果信号有前导空白，跳过它
-        if signal_start > 0:
-            signal = signal[signal_start:]
+        # 找到有效信号的起止位置
+        valid_indices = np.where(valid_mask)[0]
+        if len(valid_indices) == 0:
+            return self._empty_rf_metrics()
+
+        signal_start = valid_indices[0]
+        signal_end = valid_indices[-1] + 1
+
+        # 裁剪信号到有效区域
+        signal = signal[signal_start:signal_end]
 
         # 计算瞬时频率
         phase = np.unwrap(np.angle(signal))

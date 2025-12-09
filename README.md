@@ -131,6 +131,7 @@ python examples/demo.py examples/config_rftest_pattern.yaml
 | `config_advertising.yaml` | 广播包测试 | BLE 广播数据包 |
 | `config_low_snr.yaml` | 灵敏度测试 | 低 SNR 环境 |
 | `config_ideal.yaml` | 理想信道 | 无噪声，无频偏 |
+| `config_rayleigh.yaml` | 瑞利衰落 | 瑞利衰落信道测试 |
 
 ### 常用配置修改
 
@@ -829,6 +830,32 @@ viz = BLEVisualizer(theme='default')
 | P PEAK | 峰值功率 (dBm) | - |
 
 ## 信道模型
+
+### YAML 配置
+
+在配置文件中通过 `channel.type` 指定信道类型：
+
+```yaml
+channel:
+  type: "awgn"           # 信道类型 (见下表)
+  snr_db: 20             # 信噪比 (dB)
+  freq_offset: 0         # 载波频偏 (Hz)
+  doppler_freq: 10.0     # 多普勒频率 (Hz) - 用于 rayleigh/rician
+  k_factor: 4.0          # 莱斯 K 因子 - 仅用于 rician
+```
+
+### 支持的信道类型
+
+| type | 说明 | 适用场景 |
+|------|------|---------|
+| `awgn` | 加性高斯白噪声（默认） | 理想信道、基准测试 |
+| `flat_fading` | 平坦衰落 | 窄带信号 |
+| `rayleigh` | 瑞利衰落 | 无直射路径的多径环境（密集城市） |
+| `rician` | 莱斯衰落 | 有直射路径的多径环境（室内/郊区） |
+| `multipath` | 多径衰落 | 自定义多径模型 |
+| `ble_indoor` | BLE 室内信道模型 | BLE 典型室内场景 |
+
+### 信道类型详解
 
 | 信道类型 | 类/函数 | 说明 |
 |---------|--------|------|
