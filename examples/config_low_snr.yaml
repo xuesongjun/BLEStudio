@@ -1,27 +1,25 @@
-# BLE Studio 配置模板 - 低 SNR 灵敏度测试
-# 场景: 测试解调器在低信噪比条件下的性能
+# BLE Studio - 低 SNR 灵敏度测试
 
-mode: "advertising"
-
-# 发送端配置
-tx:
-  adv_address: "AA:BB:CC:DD:EE:FF"
-  adv_data: "0201060908424c455374756469"
+# 公共参数
+common:
+  mode: "advertising"
   channel: 38
 
-# 调制参数
-modulation:
+# 发送端
+tx:
   phy_mode: "LE_1M"
   sample_rate: 8.0e6
   modulation_index: 0.5
   bt: 0.5
+  adv_address: "AA:BB:CC:DD:EE:FF"
+  adv_data: "0201060908424c455374756469"
 
-# 信道参数 (低 SNR + 频偏)
+# 信道模型 (低 SNR + 频偏)
 channel:
-  snr_db: 10  # 低信噪比
-  freq_offset: 100.0e3  # 100 kHz 频偏
+  snr_db: 10
+  freq_offset: 100.0e3
 
-# 输出配置
+# 输出
 output:
   dir: "results"
   html_report: true

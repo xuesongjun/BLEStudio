@@ -1,27 +1,25 @@
-# BLE Studio 配置模板 - 理想信道测试
-# 场景: 无噪声、无频偏的理想环境
+# BLE Studio - 理想信道测试
 
-mode: "advertising"
-
-# 发送端配置
-tx:
-  adv_address: "11:22:33:44:55:66"
-  adv_data: "0201060908424c455374756469"
+# 公共参数
+common:
+  mode: "advertising"
   channel: 37
 
-# 调制参数
-modulation:
+# 发送端
+tx:
   phy_mode: "LE_1M"
   sample_rate: 8.0e6
   modulation_index: 0.5
   bt: 0.5
+  adv_address: "11:22:33:44:55:66"
+  adv_data: "0201060908424c455374756469"
 
-# 信道参数 (理想)
+# 信道模型 (理想)
 channel:
-  snr_db: 100  # 极高 SNR (近似无噪声)
-  freq_offset: 0  # 无频偏
+  snr_db: 100
+  freq_offset: 0
 
-# 输出配置
+# 输出
 output:
   dir: "results"
   html_report: true

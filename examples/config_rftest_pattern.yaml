@@ -1,69 +1,39 @@
-# BLE Studio 配置模板 - RF Test 固定模式
-# 场景: DTM 射频测试 - 0x55 交替模式 (用于频谱测试)
+# BLE Studio - RF Test 固定模式 (0x55)
 
-mode: "rf_test"
-
-# RF Test 配置
-rf_test:
-  # 负载类型:
-  #   PRBS9 - PRBS9 伪随机序列
-  #   PRBS15 - PRBS15 伪随机序列
-  #   PATTERN_11110000 - 0xF0 重复
-  #   PATTERN_10101010 - 0x55 重复
-  #   PATTERN_11111111 - 0xFF 全1
-  #   PATTERN_00000000 - 0x00 全0
-  #   PATTERN_00001111 - 0x0F 重复
-  #   PATTERN_01010101 - 0xAA 重复
-  payload_type: "PATTERN_10101010"  # 0x55 交替模式
-  payload_length: 37
+# 公共参数
+common:
+  mode: "rf_test"
   channel: 0
-  # 白化开关 (DTM 标准模式应关闭白化)
-  whitening: false
 
-# 调制参数
-modulation:
+# 发送端
+tx:
   phy_mode: "LE_1M"
   sample_rate: 8.0e6
   modulation_index: 0.5
   bt: 0.5
+  payload_type: "PATTERN_10101010"  # 0x55
+  payload_length: 37
+  whitening: false
 
-# 信道参数
+# 信道模型 (bypass)
 channel:
   snr_db: inf
   freq_offset: 0
 
+# 数据导出
+io:
+  output:
+    enabled: true
+    bit_width: 12
+    iq_format: "two_column"
+    number_format: "signed"
+    scale_to_full: true
+    export_txt: true
+    export_mat: true
+    export_verilog: true
+    export_tx: true
 
-# ============================================================
-# 信道出口配置 - 导出 IQ 数据
-# ============================================================
-channel_output:
-  # 是否启用导出
-  enabled: true
-  # 量化位宽
-  bit_width: 12
-  # Q 格式小数位数
-  frac_bits: 0
-  # IQ 格式: two_column, interleaved, separate
-  iq_format: "two_column"
-  # 数值格式: signed, unsigned, hex
-  number_format: "signed"
-  # 是否缩放到满量程 (true=根据信号幅度自动缩放, false=假设输入已归一化)
-  scale_to_full: true
-  # 是否添加文件头注释
-  add_header: true
-  # ---------- 导出格式选择 ----------
-  # 导出 TXT 文件
-  export_txt: true
-  # 导出 MATLAB .mat 文件
-  export_mat: true
-  # 导出 Verilog $readmemh 格式
-  export_verilog: true
-  # 导出分离的 I/Q 文件
-  export_separate: false
-  # 同时导出 TX 理想信号
-  export_tx: true
-
-# 输出配置
+# 输出
 output:
   dir: "results"
   html_report: true

@@ -1,14 +1,15 @@
 """
-BLE Studio 示例程序
-演示 BLE 数据包生成、调制、信道传输、解调的完整流程
+BLE Studio 仿真程序
 
-数据流架构:
-    BLE TX → [信道入口: 可导入外部IQ] → 信道模型 → [信道出口: 可导出IQ] → BLE RX
+数据流: TX → [信道入口] → 信道模型 → [信道出口] → RX
 
-支持:
-- 通过配置文件自定义仿真参数
-- 信道入口: 导入 IQ 数据 (txt/mat) 替代 TX 输出
-- 信道出口: 导出 IQ 数据 (txt/mat) 给外部使用
+配置结构:
+    common   - 公共参数 (模式、信道号)
+    tx       - 发送端参数
+    channel  - 信道模型参数
+    rx       - 接收端参数 (预留)
+    io       - 数据导入导出
+    output   - 输出配置
 """
 
 import os
@@ -16,631 +17,331 @@ import sys
 import yaml
 import numpy as np
 from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
 from ble_studio import (
     BLEModulator, BLEDemodulator, ReportGenerator,
     ModulatorConfig, DemodulatorConfig, BLEPhyMode,
-    create_advertising_packet,
-    # RF Test
-    RFTestPayloadType, create_test_packet,
-    # 信道模型
+    create_advertising_packet, create_test_packet,
+    RFTestPayloadType,
     BLEChannel, ChannelConfig, ChannelType,
-    # IQ 导入导出
-    IQExporter, IQImporter, IQExportConfig, IQImportConfig,
-    IQFormat, NumberFormat,
-    export_iq_txt, export_iq_verilog, import_iq_txt, import_iq_mat,
-    # 可视化 (用于计算 RF 指标)
+    IQExporter, IQExportConfig, IQFormat, NumberFormat,
+    import_iq_txt, import_iq_mat,
     BLEVisualizer,
 )
 
 
-def load_config(config_path: str = "examples/config.yaml") -> dict:
-    """加载配置文件"""
-    if os.path.exists(config_path):
-        with open(config_path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f)
-    return {}
+# ============================================================
+# 配置解析
+# ============================================================
+@dataclass
+class SimConfig:
+    """仿真配置"""
+    # 公共参数
+    mode: str = "rf_test"
+    channel: int = 0
+
+    # TX 参数
+    phy_mode: BLEPhyMode = BLEPhyMode.LE_1M
+    sample_rate: float = 8e6
+    modulation_index: float = 0.5
+    bt: float = 0.5
+
+    # TX - 广播模式
+    adv_address: bytes = b'\x11\x22\x33\x44\x55\x66'
+    adv_data: bytes = b'\x02\x01\x06\x09\x08BLEStudi'
+
+    # TX - RF Test 模式
+    payload_type: RFTestPayloadType = RFTestPayloadType.PRBS9
+    payload_length: int = 37
+    whitening: bool = False
+
+    # 信道参数
+    snr_db: float = 15.0
+    freq_offset: float = 0.0
+
+    # 输出配置
+    output_dir: str = "results"
+    html_report: bool = True
+    theme: str = "instrument"
+
+    # IO 配置
+    io_input: dict = None
+    io_output: dict = None
+
+    @classmethod
+    def from_dict(cls, cfg: dict) -> 'SimConfig':
+        """从配置字典创建"""
+        common = cfg.get('common', {})
+        tx = cfg.get('tx', {})
+        ch = cfg.get('channel', {})
+        out = cfg.get('output', {})
+        io_cfg = cfg.get('io', {})
+
+        return cls(
+            mode=common.get('mode', 'rf_test'),
+            channel=common.get('channel', 0),
+            phy_mode=getattr(BLEPhyMode, tx.get('phy_mode', 'LE_1M')),
+            sample_rate=float(tx.get('sample_rate', 8e6)),
+            modulation_index=float(tx.get('modulation_index', 0.5)),
+            bt=float(tx.get('bt', 0.5)),
+            adv_address=bytes.fromhex(tx.get('adv_address', '11:22:33:44:55:66').replace(':', '')),
+            adv_data=bytes.fromhex(tx.get('adv_data', '0201060908424c455374756469')),
+            payload_type=getattr(RFTestPayloadType, tx.get('payload_type', 'PRBS9')),
+            payload_length=int(tx.get('payload_length', 37)),
+            whitening=bool(tx.get('whitening', False)),
+            snr_db=float(ch.get('snr_db', 15)),
+            freq_offset=float(ch.get('freq_offset', 0)),
+            output_dir=out.get('dir', 'results'),
+            html_report=out.get('html_report', True),
+            theme=out.get('theme', 'instrument'),
+            io_input=io_cfg.get('input', {}),
+            io_output=io_cfg.get('output', {}),
+        )
 
 
-def export_iq_to_mat(signal: np.ndarray, file_path: str, sample_rate: float,
-                     var_name: str = 'iq'):
-    """导出 IQ 数据到 MATLAB .mat 文件"""
-    try:
-        from scipy.io import savemat
-        mat_data = {
-            var_name: signal,
-            'I': signal.real,
-            'Q': signal.imag,
-            'fs': sample_rate,
-            'sample_rate': sample_rate,
-        }
-        savemat(file_path, mat_data)
-        return True
-    except ImportError:
-        print("[警告] scipy 未安装, 无法导出 .mat 文件")
-        return False
-
-
-def import_channel_input(config: dict, sample_rate: float) -> tuple:
-    """
-    信道入口: 导入 IQ 数据替代 TX 输出
-
-    Args:
-        config: channel_input 配置
-        sample_rate: 采样率
-
-    Returns:
-        (iq_signal, actual_sample_rate) 或 (None, None) 如果未配置导入
-    """
-    if not config.get('enabled', False):
-        return None, sample_rate
+# ============================================================
+# IO 操作
+# ============================================================
+def import_iq(config: dict, default_sample_rate: float) -> Tuple[Optional[np.ndarray], float]:
+    """导入 IQ 数据"""
+    if not config or not config.get('enabled', False):
+        return None, default_sample_rate
 
     file_path = config.get('file', '')
     if not file_path or not os.path.exists(file_path):
-        print(f"[信道入口] 文件不存在: {file_path}")
-        return None, sample_rate
+        print(f"[IO] 文件不存在: {file_path}")
+        return None, default_sample_rate
 
+    # 自动判断文件类型
     file_type = config.get('file_type', 'auto')
     if file_type == 'auto':
-        # 根据扩展名自动判断
         ext = Path(file_path).suffix.lower()
-        file_type = 'mat' if ext == '.mat' else 'txt'
+        file_type = 'mat' if ext in ('.mat', '.bwv') else 'txt'
 
-    print(f"[信道入口] 导入文件: {file_path} ({file_type})")
+    print(f"[IO] 导入: {file_path}")
 
     if file_type == 'mat':
-        # MATLAB .mat 文件
-        i_var = config.get('mat_i_var', 'I')
-        q_var = config.get('mat_q_var', 'Q')
         complex_var = config.get('mat_complex_var', '') or None
-        signal, fs = import_iq_mat(file_path, i_var, q_var, complex_var)
-        if fs:
-            sample_rate = fs
-        print(f"[信道入口] 导入 {len(signal)} samples, 采样率: {sample_rate/1e6:.2f} MHz")
+        signal, fs = import_iq_mat(
+            file_path,
+            config.get('mat_i_var', 'I'),
+            config.get('mat_q_var', 'Q'),
+            complex_var
+        )
+        sample_rate = fs if fs else default_sample_rate
     else:
-        # 文本文件 (txt)
-        bit_width = int(config.get('bit_width', 12))
-        frac_bits = int(config.get('frac_bits', 0))
-        iq_format = config.get('iq_format', 'two_column')
-        number_format = config.get('number_format', 'signed')
-        skip_lines = int(config.get('skip_lines', 0))
-
         signal = import_iq_txt(
             file_path,
-            bit_width=bit_width,
-            frac_bits=frac_bits,
-            iq_format=iq_format,
-            number_format=number_format,
-            skip_lines=skip_lines
+            bit_width=int(config.get('bit_width', 12)),
+            iq_format=config.get('iq_format', 'two_column'),
+            number_format=config.get('number_format', 'signed'),
+            skip_lines=int(config.get('skip_lines', 0))
         )
-        print(f"[信道入口] 导入 {len(signal)} samples (位宽: {bit_width}, Q{bit_width-frac_bits}.{frac_bits})")
+        sample_rate = default_sample_rate
+
+    print(f"[IO] 已导入 {len(signal)} samples @ {sample_rate/1e6:.2f} MHz")
+
+    # 检测并裁剪前导空白区域 (仅当空白超过一定比例时)
+    amplitude = np.abs(signal)
+    threshold = np.max(amplitude) * 0.01  # 1% 阈值
+    signal_start = np.argmax(amplitude > threshold)
+
+    # 只有当空白占比超过 5% 时才裁剪
+    if signal_start > len(signal) * 0.05:
+        original_len = len(signal)
+        signal = signal[signal_start:]
+        print(f"[IO] 裁剪前导空白: 跳过 {signal_start} samples ({signal_start/sample_rate*1e6:.1f} μs)")
+    elif signal_start > 0:
+        print(f"[IO] 检测到前导空白 {signal_start} samples ({signal_start/sample_rate*1e6:.1f} μs), 保留用于解调")
 
     return signal, sample_rate
 
 
-def export_channel_output(signal: np.ndarray, config: dict, output_dir: str,
-                          sample_rate: float, prefix: str = 'channel_out'):
-    """
-    信道出口: 导出 IQ 数据
-
-    Args:
-        signal: IQ 信号
-        config: channel_output 配置
-        output_dir: 输出目录
-        sample_rate: 采样率
-        prefix: 文件名前缀
-    """
-    if not config.get('enabled', False):
+def export_iq(signal: np.ndarray, config: dict, output_dir: str,
+              sample_rate: float, prefix: str):
+    """导出 IQ 数据"""
+    if not config or not config.get('enabled', False):
         return
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # 导出配置
-    bit_width = int(config.get('bit_width', 12))
-    frac_bits = int(config.get('frac_bits', 0))
-    iq_format = config.get('iq_format', 'two_column')
-    number_format = config.get('number_format', 'signed')
-    add_header = config.get('add_header', True)
-    scale_to_full = config.get('scale_to_full', True)
-
-    export_config = IQExportConfig(
-        bit_width=bit_width,
-        frac_bits=frac_bits,
-        iq_format=IQFormat(iq_format),
-        number_format=NumberFormat(number_format),
-        add_header=add_header,
-        scale_to_full=scale_to_full,
+    export_cfg = IQExportConfig(
+        bit_width=int(config.get('bit_width', 12)),
+        iq_format=IQFormat(config.get('iq_format', 'two_column')),
+        number_format=NumberFormat(config.get('number_format', 'signed')),
+        add_header=config.get('add_header', True),
+        scale_to_full=config.get('scale_to_full', True),
     )
-    exporter = IQExporter(export_config)
+    exporter = IQExporter(export_cfg)
 
-    q_format = f"Q{bit_width - frac_bits}.{frac_bits}"
-    print(f"[信道出口] 导出配置: 位宽={bit_width}, 格式={q_format}")
-
-    # 导出 txt 文件
+    # TXT
     if config.get('export_txt', True):
-        txt_file = os.path.join(output_dir, f'{prefix}.txt')
-        info = exporter.export_txt(signal, txt_file)
-        print(f"[信道出口] TXT: {txt_file} ({info['samples']} samples)")
+        exporter.export_txt(signal, os.path.join(output_dir, f'{prefix}.txt'))
 
-    # 导出 Verilog $readmemh 格式
-    if config.get('export_verilog', False):
-        mem_file = os.path.join(output_dir, f'{prefix}.mem')
-        exporter.export_verilog_mem(signal, mem_file)
-        print(f"[信道出口] Verilog MEM: {mem_file}")
-
-    # 导出 MATLAB .mat 文件
+    # MAT
     if config.get('export_mat', True):
-        mat_file = os.path.join(output_dir, f'{prefix}.mat')
-        if export_iq_to_mat(signal, mat_file, sample_rate):
-            print(f"[信道出口] MAT: {mat_file}")
+        try:
+            from scipy.io import savemat
+            savemat(os.path.join(output_dir, f'{prefix}.mat'), {
+                'iq': signal, 'I': signal.real, 'Q': signal.imag, 'fs': sample_rate
+            })
+        except ImportError:
+            pass
 
-    # 导出分离的 I/Q 文件
-    if config.get('export_separate', False):
-        i_file = os.path.join(output_dir, f'{prefix}_i.txt')
-        q_file = os.path.join(output_dir, f'{prefix}_q.txt')
-        exporter.export_separate_files(signal, i_file, q_file)
-        print(f"[信道出口] 分离文件: {i_file}, {q_file}")
+    # Verilog
+    if config.get('export_verilog', False):
+        exporter.export_verilog_mem(signal, os.path.join(output_dir, f'{prefix}.mem'))
+
+    print(f"[IO] 导出: {prefix}.* ({len(signal)} samples)")
 
 
-def import_and_demodulate(config: dict):
-    """导入外部 IQ 数据并解调"""
-    iq_import_cfg = config.get('iq_import', {})
-    mod_cfg = config.get('modulation', {})
-    tx_cfg = config.get('tx', {})
-    out_cfg = config.get('output', {})
+# ============================================================
+# 仿真核心
+# ============================================================
+def run_simulation(cfg: SimConfig, raw_config: dict):
+    """运行仿真"""
+    print("=" * 60)
+    print(f"BLE Studio - {cfg.mode.upper()} 模式")
+    print("=" * 60)
 
-    file_path = iq_import_cfg.get('file', '')
-    if not file_path or not os.path.exists(file_path):
-        print(f"[错误] IQ 导入文件不存在: {file_path}")
-        return None
-
-    file_type = iq_import_cfg.get('file_type', 'txt')
-    bit_width = int(iq_import_cfg.get('bit_width', 12))
-    frac_bits = int(iq_import_cfg.get('frac_bits', 0))
-    sample_rate = float(mod_cfg.get('sample_rate', 8e6))
-
-    print("=" * 50)
-    print("BLE Studio - IQ 数据导入解调")
-    print("=" * 50)
-    print(f"[导入] 文件: {file_path}")
-    print(f"[导入] 类型: {file_type}, 位宽: {bit_width}, Q格式: Q{bit_width-frac_bits}.{frac_bits}")
-
-    # 导入 IQ 数据
-    if file_type == 'mat':
-        i_var = iq_import_cfg.get('mat_i_var', 'I')
-        q_var = iq_import_cfg.get('mat_q_var', 'Q')
-        complex_var = iq_import_cfg.get('mat_complex_var', '') or None
-        signal, fs = import_iq_mat(file_path, i_var, q_var, complex_var)
-        if fs:
-            sample_rate = fs
-        print(f"[导入] 采样率: {sample_rate/1e6} MHz (从 MAT 文件)")
-    else:
-        iq_format = iq_import_cfg.get('iq_format', 'two_column')
-        number_format = iq_import_cfg.get('number_format', 'signed')
-        skip_lines = int(iq_import_cfg.get('skip_lines', 0))
-
-        signal = import_iq_txt(
-            file_path,
-            bit_width=bit_width,
-            frac_bits=frac_bits,
-            iq_format=iq_format,
-            number_format=number_format,
-            skip_lines=skip_lines
+    # 1. TX: 生成数据包
+    if cfg.mode == 'rf_test' or cfg.mode == 'dtm':
+        packet = create_test_packet(
+            payload_type=cfg.payload_type,
+            payload_length=cfg.payload_length,
+            channel=cfg.channel,
+            phy_mode=cfg.phy_mode,
+            whitening=cfg.whitening
         )
-
-    print(f"[导入] IQ 长度: {len(signal)} samples")
-
-    # 解调参数
-    phy_mode = getattr(BLEPhyMode, mod_cfg.get('phy_mode', 'LE_1M'))
-    channel = tx_cfg.get('channel', 37)
-
-    # 创建解调器
-    demodulator = BLEDemodulator(DemodulatorConfig(
-        phy_mode=phy_mode,
-        sample_rate=sample_rate,
-        access_address=0x8E89BED6,
-        channel=channel
-    ))
-
-    # 解调
-    result = demodulator.demodulate(signal)
-
-    print(f"[RX] 解调: {'成功' if result.success else '失败'}, CRC: {'通过' if result.crc_valid else '失败'}")
-    if result.success and result.pdu:
-        print(f"[RX] PDU: {result.pdu.hex()}")
-        print(f"[RX] RSSI: {result.rssi:.2f} dB")
-        print(f"[RX] 频偏: {result.freq_offset/1e3:.2f} kHz")
-
-    # 生成报告
-    output_dir = out_cfg.get('dir', 'results')
-    if out_cfg.get('html_report', True):
-        results = {
-            'import': {
-                'file': file_path,
-                'file_type': file_type,
-                'samples': len(signal),
-                'bit_width': bit_width,
-            },
-            'modulation': {
-                'sample_rate_mhz': sample_rate / 1e6,
-            },
-            'demodulation': {
-                'success': result.success,
-                'crc_valid': result.crc_valid,
-                'rssi_db': result.rssi,
-                'freq_offset_khz': result.freq_offset / 1e3,
-                'pdu': result.pdu.hex() if result.pdu else None,
-            }
-        }
-
-        reporter = ReportGenerator(output_dir, theme=out_cfg.get('theme', 'instrument'))
-        # 使用导入的信号生成图表
-        reporter.generate_all(results, signal, signal, None, sample_rate)
-
-    print("=" * 50)
-    print(f"完成! 打开 {output_dir}/index.html 查看结果")
-
-    return result
-
-
-def run_simulation(config: dict = None):
-    """运行 BLE 仿真"""
-    config = config or {}
-
-    # ========== 1. 解析配置 ==========
-    tx_cfg = config.get('tx', {})
-    mod_cfg = config.get('modulation', {})
-    ch_cfg = config.get('channel', {})
-    out_cfg = config.get('output', {})
-    iq_export_cfg = config.get('iq_export', {})
-    iq_import_cfg = config.get('iq_import', {})
-
-    # 发送端参数
-    adv_address = bytes.fromhex(tx_cfg.get('adv_address', '11:22:33:44:55:66').replace(':', ''))
-    adv_data = bytes.fromhex(tx_cfg.get('adv_data', '0201060908424c455374756469'))
-    channel = tx_cfg.get('channel', 37)
-
-    # 调制参数
-    phy_mode = getattr(BLEPhyMode, mod_cfg.get('phy_mode', 'LE_1M'))
-    sample_rate = float(mod_cfg.get('sample_rate', 8e6))
-    modulation_index = float(mod_cfg.get('modulation_index', 0.5))
-    bt = float(mod_cfg.get('bt', 0.5))
-
-    # 信道参数
-    snr_db = float(ch_cfg.get('snr_db', 15))
-    freq_offset = float(ch_cfg.get('freq_offset', 50e3))
-
-    # 输出配置
-    output_dir = out_cfg.get('dir', 'results')
-    os.makedirs(output_dir, exist_ok=True)
-
-    # ========== 2. 生成数据包 ==========
-    print("=" * 50)
-    print("BLE Studio 仿真")
-    print("=" * 50)
-
-    packet = create_advertising_packet(
-        adv_address=adv_address,
-        adv_data=adv_data,
-        channel=channel
-    )
-    bits = packet.generate()
-    tx_payload = adv_address + adv_data
-
-    print(f"[TX] Payload: {tx_payload.hex()}")
-    print(f"[TX] 比特数: {len(bits)}")
-
-    # ========== 3. 调制 ==========
-    modulator = BLEModulator(ModulatorConfig(
-        phy_mode=phy_mode,
-        sample_rate=sample_rate,
-        modulation_index=modulation_index,
-        bt=bt
-    ))
-    iq_signal = modulator.modulate(bits)
-
-    print(f"[调制] 采样率: {sample_rate/1e6} MHz, IQ长度: {len(iq_signal)}")
-
-    # ========== 4. 信道模型: 添加损伤 ==========
-    channel = BLEChannel(ChannelConfig(
-        channel_type=ChannelType.AWGN,
-        sample_rate=sample_rate,
-        snr_db=snr_db if not np.isinf(snr_db) else 100,  # inf -> 100dB (几乎无噪声)
-        frequency_offset=freq_offset,
-    ))
-    # 如果 SNR=inf，bypass 信道 (直接使用理想信号)
-    if np.isinf(snr_db) and freq_offset == 0:
-        impaired_signal = iq_signal.copy()
-        print(f"[信道] Bypass (SNR=inf, freq_offset=0)")
+        test_info = packet.get_test_info()
+        tx_payload = packet.test_payload
+        access_address = 0x71764129  # DTM
+        print(f"[TX] {test_info['payload_type']}, {cfg.payload_length} bytes, "
+              f"CH{cfg.channel} ({test_info['frequency_mhz']} MHz)")
     else:
-        impaired_signal = channel.apply(iq_signal)
-        print(f"[信道] SNR: {snr_db} dB, 频偏: {freq_offset/1e3} kHz")
+        packet = create_advertising_packet(
+            adv_address=cfg.adv_address,
+            adv_data=cfg.adv_data,
+            channel=cfg.channel
+        )
+        test_info = {'payload_type': 'ADV'}
+        tx_payload = cfg.adv_address + cfg.adv_data
+        access_address = 0x8E89BED6  # 广播
+        print(f"[TX] 广播包, CH{cfg.channel}")
 
-    # ========== 5. 导出 IQ 数据 (Verilog 仿真) ==========
-    if iq_export_cfg.get('enabled', False):
-        export_iq_data(iq_signal, impaired_signal, output_dir, iq_export_cfg, sample_rate)
-
-    # ========== 6. 解调 ==========
-    demodulator = BLEDemodulator(DemodulatorConfig(
-        phy_mode=phy_mode,
-        sample_rate=sample_rate,
-        access_address=0x8E89BED6,
-        channel=channel
-    ))
-    result = demodulator.demodulate(impaired_signal)
-
-    rx_payload = result.pdu[2:] if result.success and len(result.pdu) > 2 else None
-    payload_match = (tx_payload == rx_payload) if rx_payload else False
-
-    print(f"[RX] 解调: {'成功' if result.success else '失败'}, CRC: {'通过' if result.crc_valid else '失败'}")
-    print(f"[RX] Payload: {rx_payload.hex() if rx_payload else 'N/A'}")
-    print(f"[结果] 数据匹配: {'OK' if payload_match else 'FAIL'}")
-
-    # ========== 7. 生成报告 ==========
-    if out_cfg.get('html_report', True):
-        results = {
-            'tx': {
-                'bits': len(bits),
-                'payload_len': len(tx_payload),
-                'adv_address': tx_cfg.get('adv_address', '11:22:33:44:55:66'),
-            },
-            'modulation': {
-                'sample_rate_mhz': sample_rate / 1e6,
-                'symbol_rate_msps': modulator.symbol_rate / 1e6,
-                'modulation_index': modulation_index,
-                'bt': bt,
-            },
-            'channel': {
-                'snr_db': snr_db,
-                'freq_offset_khz': freq_offset / 1e3,
-            },
-            'demodulation': {
-                'success': result.success,
-                'crc_valid': result.crc_valid,
-                'rssi_db': result.rssi,
-                'freq_offset_khz': result.freq_offset / 1e3,
-                'tx_payload': tx_payload.hex(),
-                'rx_payload': rx_payload.hex() if rx_payload else None,
-                'payload_match': payload_match,
-            }
-        }
-
-        reporter = ReportGenerator(output_dir, theme=out_cfg.get('theme', 'instrument'))
-        reporter.generate_all(results, iq_signal, impaired_signal, bits, sample_rate)
-
-    print(f"输出目录: {output_dir}")
-    print("=" * 50)
-    print(f"完成! 打开 {output_dir}/index.html 查看结果")
-
-    return result
-
-
-def run_rf_test(config: dict = None):
-    """
-    运行 BLE RF Test (DTM) 仿真
-
-    数据流:
-        TX → [信道入口] → 信道模型 → [信道出口] → RX
-    """
-    config = config or {}
-
-    # ========== 1. 解析配置 ==========
-    test_cfg = config.get('rf_test', {})
-    mod_cfg = config.get('modulation', {})
-    ch_cfg = config.get('channel', {})
-    out_cfg = config.get('output', {})
-    ch_input_cfg = config.get('channel_input', {})   # 信道入口配置
-    ch_output_cfg = config.get('channel_output', {})  # 信道出口配置
-
-    # 测试包参数
-    payload_type_str = test_cfg.get('payload_type', 'PRBS9')
-    payload_type = getattr(RFTestPayloadType, payload_type_str, RFTestPayloadType.PRBS9)
-    payload_length = int(test_cfg.get('payload_length', 37))
-    test_channel = test_cfg.get('channel', 0)
-    whitening = bool(test_cfg.get('whitening', False))
-
-    # 调制参数
-    phy_mode = getattr(BLEPhyMode, mod_cfg.get('phy_mode', 'LE_1M'))
-    sample_rate = float(mod_cfg.get('sample_rate', 8e6))
-    modulation_index = float(mod_cfg.get('modulation_index', 0.5))
-    bt = float(mod_cfg.get('bt', 0.5))
-
-    # 信道参数
-    snr_db = float(ch_cfg.get('snr_db', 20))
-    freq_offset = float(ch_cfg.get('freq_offset', 0))
-
-    # 输出配置
-    output_dir = out_cfg.get('dir', 'results')
-    os.makedirs(output_dir, exist_ok=True)
-
-    print("=" * 60)
-    print("BLE RF Test (DTM) 仿真")
-    print("=" * 60)
-
-    # ========== 2. TX: 生成测试数据包 ==========
-    packet = create_test_packet(
-        payload_type=payload_type,
-        payload_length=payload_length,
-        channel=test_channel,
-        phy_mode=phy_mode,
-        whitening=whitening
-    )
     bits = packet.generate()
-    test_info = packet.get_test_info()
-    tx_payload = packet.test_payload
 
-    print(f"[TX] 测试模式: {test_info['payload_type']}")
-    print(f"[TX] 负载长度: {test_info['payload_length']} bytes")
-    print(f"[TX] PHY: {test_info['phy_mode']}")
-    print(f"[TX] 信道: {test_info['channel']} ({test_info['frequency_mhz']} MHz)")
-    print(f"[TX] 白化: {'开启' if whitening else '关闭'}")
-
-    # ========== 3. 调制 ==========
+    # 2. TX: 调制
     modulator = BLEModulator(ModulatorConfig(
-        phy_mode=phy_mode,
-        sample_rate=sample_rate,
-        modulation_index=modulation_index,
-        bt=bt
+        phy_mode=cfg.phy_mode,
+        sample_rate=cfg.sample_rate,
+        modulation_index=cfg.modulation_index,
+        bt=cfg.bt
     ))
-    tx_iq_signal = modulator.modulate(bits)
-    print(f"[TX] IQ 长度: {len(tx_iq_signal)} samples")
+    tx_signal = modulator.modulate(bits)
+    print(f"[TX] {len(tx_signal)} samples @ {cfg.sample_rate/1e6:.1f} MHz")
 
-    # ========== 4. 信道入口: 检查是否导入外部 IQ 数据 ==========
-    imported_signal, sample_rate = import_channel_input(ch_input_cfg, sample_rate)
+    # 3. 信道入口: 导入外部 IQ (可选)
+    imported_signal, sample_rate = import_iq(cfg.io_input, cfg.sample_rate)
     if imported_signal is not None:
-        # 使用导入的 IQ 数据替代 TX 输出
-        channel_input_signal = imported_signal
-        print(f"[信道入口] 使用外部 IQ 数据替代 TX 输出")
-        # 如果是导入模式，TX 信号仍保留用于对比
-        tx_iq_signal_for_display = tx_iq_signal
+        channel_in = imported_signal
+        print(f"[信道] 使用外部 IQ")
     else:
-        # 使用 TX 产生的 IQ 数据
-        channel_input_signal = tx_iq_signal
-        tx_iq_signal_for_display = tx_iq_signal
-        print(f"[信道入口] 使用 TX 输出")
+        channel_in = tx_signal
+        sample_rate = cfg.sample_rate
 
-    # ========== 5. 信道模型: 添加损伤 ==========
-    print(f"[信道] SNR: {snr_db} dB, 频偏: {freq_offset/1e3} kHz")
-
-    # 使用信道模型
-    channel = BLEChannel(ChannelConfig(
-        channel_type=ChannelType.AWGN,
-        sample_rate=sample_rate,
-        snr_db=snr_db if not np.isinf(snr_db) else 100,  # inf -> 100dB (几乎无噪声)
-        frequency_offset=freq_offset,
-    ))
-
-    # 如果 SNR=inf 且无频偏，bypass 信道 (直接使用理想信号)
-    if np.isinf(snr_db) and freq_offset == 0:
-        channel_output_signal = channel_input_signal.copy()
-        print(f"[信道] Bypass (SNR=inf, freq_offset=0)")
+    # 4. 信道模型
+    if np.isinf(cfg.snr_db) and cfg.freq_offset == 0:
+        channel_out = channel_in.copy()
+        print(f"[信道] Bypass")
     else:
-        channel_output_signal = channel.apply(channel_input_signal)
+        channel_model = BLEChannel(ChannelConfig(
+            channel_type=ChannelType.AWGN,
+            sample_rate=sample_rate,
+            snr_db=cfg.snr_db if not np.isinf(cfg.snr_db) else 100,
+            frequency_offset=cfg.freq_offset,
+        ))
+        channel_out = channel_model.apply(channel_in)
+        print(f"[信道] SNR={cfg.snr_db} dB, 频偏={cfg.freq_offset/1e3:.1f} kHz")
 
-    # ========== 6. 信道出口: 导出 IQ 数据 ==========
-    # 导出 TX 理想信号 (信道传输前)
-    if ch_output_cfg.get('export_tx', True):
-        export_channel_output(
-            tx_iq_signal_for_display,
-            ch_output_cfg,
-            output_dir,
-            sample_rate,
-            prefix='iq_tx_ideal'
-        )
+    # 5. 信道出口: 导出 IQ (可选)
+    if cfg.io_output and cfg.io_output.get('export_tx', False):
+        export_iq(tx_signal, cfg.io_output, cfg.output_dir, sample_rate, 'iq_tx')
+    export_iq(channel_out, cfg.io_output, cfg.output_dir, sample_rate, 'iq_rx')
 
-    # 导出信道输出 (送给 RX 的损伤信号)
-    export_channel_output(
-        channel_output_signal,
-        ch_output_cfg,
-        output_dir,
-        sample_rate,
-        prefix='iq_channel_out'
-    )
-
-    # ========== 7. RX: 解调 ==========
+    # 6. RX: 解调
     demodulator = BLEDemodulator(DemodulatorConfig(
-        phy_mode=phy_mode,
+        phy_mode=cfg.phy_mode,
         sample_rate=sample_rate,
-        access_address=0x71764129,  # DTM 接入地址
-        channel=test_channel,
-        whitening=whitening
+        access_address=access_address,
+        channel=cfg.channel,
+        whitening=cfg.whitening if cfg.mode == 'rf_test' else True
     ))
-    result = demodulator.demodulate(channel_output_signal)
+    result = demodulator.demodulate(channel_out)
 
-    # 验证测试负载
     rx_payload = result.pdu[2:] if result.success and len(result.pdu) > 2 else None
     payload_match = (tx_payload == rx_payload) if rx_payload else False
 
-    print(f"[RX] 解调: {'成功' if result.success else '失败'}, CRC: {'通过' if result.crc_valid else '失败'}")
-    print(f"[RX] RSSI: {result.rssi:.1f} dB, 频偏估计: {result.freq_offset/1e3:.1f} kHz")
-    if rx_payload:
-        print(f"[RX] Payload 前16字节: {rx_payload[:16].hex()}")
-    print(f"[结果] 数据匹配: {'OK' if payload_match else 'FAIL'}")
+    print(f"[RX] {'成功' if result.success else '失败'}, "
+          f"CRC={'OK' if result.crc_valid else 'FAIL'}, "
+          f"匹配={'OK' if payload_match else 'FAIL'}")
 
-    # ========== 8. 计算并打印 RF 指标 ==========
-    viz = BLEVisualizer()
-    rf_metrics = viz.calculate_rf_metrics(
-        signal=channel_output_signal,
-        sample_rate=sample_rate,
-        samples_per_symbol=modulator.samples_per_symbol,
-        payload_type=test_info['payload_type']
-    )
+    # 7. RF 指标 (仅 RF Test 模式)
+    if cfg.mode == 'rf_test':
+        viz = BLEVisualizer()
+        rf_metrics = viz.calculate_rf_metrics(
+            channel_out, sample_rate, modulator.samples_per_symbol,
+            test_info['payload_type']
+        )
+        print(f"[RF] ΔF1={rf_metrics['delta_f1_avg']:.1f}kHz, "
+              f"ΔF2={rf_metrics['delta_f2_avg']:.1f}kHz, "
+              f"Ratio={rf_metrics['delta_f2_ratio']:.2f}")
+    else:
+        rf_metrics = {}
 
-    print()
-    print("[RF 测试指标]")
-    print(f"  ΔF1avg: {rf_metrics['delta_f1_avg']:.1f} kHz (标准: 225-275 kHz)")
-    print(f"  ΔF2avg: {rf_metrics['delta_f2_avg']:.1f} kHz")
-    print(f"  ΔF2max: {rf_metrics['delta_f2_max']:.1f} kHz (标准: >= 185 kHz)")
-    print(f"  ΔF2/ΔF1: {rf_metrics['delta_f2_ratio']:.3f} (标准: >= 0.8)")
-    print(f"  ICFT: {rf_metrics['icft']:.1f} kHz (标准: |ICFT| <= 150 kHz)")
-    print(f"  Freq Drift: {rf_metrics['freq_drift']:.1f} kHz (标准: <= 50 kHz)")
-
-    # 判断是否 PASS
-    payload_upper = test_info['payload_type'].upper()
-    is_55_pattern = any(p in payload_upper for p in ['10101010', '01010101', '0X55', '0XAA'])
-    if is_55_pattern:
-        f1_pass = 225 <= rf_metrics['delta_f1_avg'] <= 275
-        f2_pass = rf_metrics['delta_f2_max'] >= 185
-        ratio_pass = rf_metrics['delta_f2_ratio'] >= 0.8
-        icft_pass = abs(rf_metrics['icft']) <= 150
-        drift_pass = rf_metrics['freq_drift'] <= 50
-        all_pass = f1_pass and f2_pass and ratio_pass and icft_pass and drift_pass
-        print(f"  验证结果: {'ALL PASS' if all_pass else 'FAIL'}")
-
-    # ========== 9. 生成报告 ==========
-    if out_cfg.get('html_report', True):
+    # 8. 生成报告
+    if cfg.html_report:
+        os.makedirs(cfg.output_dir, exist_ok=True)
         results = {
-            'tx': {
-                'bits': len(bits),
-                'payload_len': payload_length,
-                'test_mode': test_info['payload_type'],
-            },
+            'tx': {'bits': len(bits), 'payload_len': len(tx_payload), 'test_mode': test_info['payload_type']},
             'modulation': {
                 'sample_rate_mhz': sample_rate / 1e6,
                 'symbol_rate_msps': modulator.symbol_rate / 1e6,
-                'modulation_index': modulation_index,
-                'bt': bt,
+                'modulation_index': cfg.modulation_index,
+                'bt': cfg.bt,
             },
-            'channel': {
-                'snr_db': snr_db,
-                'freq_offset_khz': freq_offset / 1e3,
-                'input_source': '外部导入' if imported_signal is not None else 'TX 输出',
-            },
+            'channel': {'snr_db': cfg.snr_db, 'freq_offset_khz': cfg.freq_offset / 1e3},
             'demodulation': {
-                'success': result.success,
-                'crc_valid': result.crc_valid,
-                'rssi_db': result.rssi,
-                'freq_offset_khz': result.freq_offset / 1e3,
-                'tx_payload': tx_payload[:32].hex() + ('...' if len(tx_payload) > 32 else ''),
-                'rx_payload': (rx_payload[:32].hex() + ('...' if len(rx_payload) > 32 else '')) if rx_payload else None,
+                'success': result.success, 'crc_valid': result.crc_valid,
+                'rssi_db': result.rssi, 'freq_offset_khz': result.freq_offset / 1e3,
+                'tx_payload': tx_payload[:32].hex(), 'rx_payload': rx_payload[:32].hex() if rx_payload else None,
                 'payload_match': payload_match,
             },
             'rf_test': test_info,
         }
-
-        reporter = ReportGenerator(output_dir, theme=out_cfg.get('theme', 'instrument'))
-        reporter.generate_all(results, tx_iq_signal_for_display, channel_output_signal, bits, sample_rate)
+        reporter = ReportGenerator(cfg.output_dir, theme=cfg.theme)
+        reporter.generate_all(results, tx_signal, channel_out, bits, sample_rate)
+        print(f"\n报告: {cfg.output_dir}/index.html")
 
     print("=" * 60)
-    print(f"完成! 输出目录: {output_dir}")
-    print(f"打开 {output_dir}/index.html 查看结果")
-
     return result
 
 
-if __name__ == "__main__":
-    # 支持命令行指定配置文件
-    config_path = sys.argv[1] if len(sys.argv) > 1 else "examples/config.yaml"
-    config = load_config(config_path)
+# ============================================================
+# 入口
+# ============================================================
+def load_config(path: str) -> dict:
+    """加载配置文件"""
+    if os.path.exists(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f) or {}
+    return {}
 
-    # 检查是否为 IQ 导入模式
-    iq_import_cfg = config.get('iq_import', {})
-    if iq_import_cfg.get('file', ''):
-        # IQ 数据导入解调模式
-        import_and_demodulate(config)
-    else:
-        # 根据配置选择仿真模式
-        mode = config.get('mode', 'advertising')
-        if mode == 'rf_test' or mode == 'dtm':
-            run_rf_test(config)
-        else:
-            run_simulation(config)
+
+if __name__ == "__main__":
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "examples/config.yaml"
+    raw_config = load_config(config_path)
+    cfg = SimConfig.from_dict(raw_config)
+    run_simulation(cfg, raw_config)

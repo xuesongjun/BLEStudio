@@ -509,10 +509,23 @@ class IQImporter:
 
         # 尝试获取采样率
         fs = sample_rate or self.config.sample_rate
+
+        # 检查顶层变量
         for var_name in ['fs', 'Fs', 'sample_rate', 'sampleRate', 'SampleRate']:
             if var_name in mat_data:
                 fs = float(mat_data[var_name].flatten()[0])
                 break
+
+        # 检查 info2.fs (iTest .bwv 文件格式)
+        if 'info2' in mat_data:
+            try:
+                info2 = mat_data['info2']
+                if info2.dtype.names and 'fs' in info2.dtype.names:
+                    fs_val = info2['fs'][0, 0]
+                    if fs_val is not None and len(fs_val) > 0:
+                        fs = float(fs_val.flatten()[0])
+            except (IndexError, TypeError, ValueError):
+                pass
 
         # 获取 IQ 数据
         if complex_var and complex_var in mat_data:

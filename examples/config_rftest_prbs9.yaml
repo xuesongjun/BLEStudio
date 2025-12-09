@@ -1,27 +1,26 @@
-# BLE Studio 配置模板 - RF Test PRBS9
-# 场景: DTM 射频测试 - PRBS9 伪随机序列
+# BLE Studio - RF Test PRBS9
 
-mode: "rf_test"
-
-# RF Test 配置
-rf_test:
-  payload_type: "PRBS9"
-  payload_length: 37
+# 公共参数
+common:
+  mode: "rf_test"
   channel: 0  # 2402 MHz
 
-# 调制参数
-modulation:
+# 发送端
+tx:
   phy_mode: "LE_1M"
   sample_rate: 8.0e6
   modulation_index: 0.5
   bt: 0.5
+  payload_type: "PRBS9"
+  payload_length: 37
+  whitening: false
 
-# 信道参数 (理想信道, 无损伤)
+# 信道模型 (理想)
 channel:
   snr_db: 30
   freq_offset: 0
 
-# 输出配置
+# 输出
 output:
   dir: "results"
   html_report: true
