@@ -971,19 +971,28 @@ class BLEVisualizer:
             'Drift ≤50 kHz',
         ]
 
-        # 判定结果格式化
-        def pass_fail(condition):
-            return '✓ PASS' if condition else '✗ FAIL'
+        # 判定结果格式化 - 同时显示数值和 PASS/FAIL
+        def pass_fail_with_value(value, unit, condition):
+            status = 'PASS' if condition else 'FAIL'
+            return f"{value:.1f} {unit} {status}"
+
+        # 计算各项指标值
+        delta_f2_min = metrics.get('delta_f2_min', metrics.get('delta_f2_avg', 0))
+        delta_f2_avg = metrics.get('delta_f2_avg', 0)
+        delta_f1_avg = metrics.get('delta_f1_avg', 1)  # 避免除零
+        ratio = delta_f2_avg / delta_f1_avg if delta_f1_avg > 0 else 0
+        icft = metrics.get('initial_freq_offset', metrics.get('freq_drift', 0))
+        drift = metrics.get('freq_drift', 0)
 
         right_values = [
             payload_type,
             f"{metrics.get('p_peak_dbm', -100):.1f} dBm",
             f"{metrics.get('delta_f1_max', 0):.1f} kHz",
             f"{metrics.get('delta_f2_max', 0):.1f} kHz",
-            pass_fail(metrics.get('delta_f2_pass', False)),
-            pass_fail(metrics.get('ratio_pass', False)),
-            pass_fail(metrics.get('icft_pass', False)),
-            pass_fail(metrics.get('drift_pass', False)),
+            pass_fail_with_value(delta_f2_min, 'kHz', metrics.get('delta_f2_pass', False)),
+            f"{ratio:.2f}      {'PASS' if metrics.get('ratio_pass', False) else 'FAIL'}",
+            pass_fail_with_value(icft, 'kHz', metrics.get('icft_pass', False)),
+            pass_fail_with_value(drift, 'kHz', metrics.get('drift_pass', False)),
         ]
 
         # 绘制左侧标签和值

@@ -23,8 +23,8 @@ tx:
 channel:
   type: "awgn"
   snr_db: inf       # 高 SNR 以获得准确测量
-  freq_offset: 0
-  
+  freq_offset: 0.0e6  # 模拟频偏 20 kHz
+
 # 数据导出
 io:
   output:
