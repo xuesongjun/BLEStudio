@@ -1,0 +1,35 @@
+# BLE Studio - 导入 .bwv 文件解调
+#
+# 数据流: [外部 IQ] → 信道模型 → RX 解调
+
+common:
+  mode: "rf_test"
+  channel: 0
+
+tx:
+  phy_mode: "LE_1M"
+  sample_rate: 120.0e6  # 与 bwv 文件采样率匹配
+  modulation_index: 0.5
+  bt: 0.5
+  payload_type: "PATTERN_11110000"
+  payload_length: 37
+  whitening: false
+
+channel:
+  ebn0_db: .inf  # bypass 信道，直接解调导入的数据
+  freq_offset: 0
+
+io:
+  input:
+    enabled: true
+    file: "template_data/BLE_1M.bwv"
+    file_type: "mat"
+    mat_complex_var: "wave"  # bwv 文件中的复数波形变量名
+
+  output:
+    enabled: false
+
+output:
+  dir: "results"
+  html_report: true
+  theme: "instrument"

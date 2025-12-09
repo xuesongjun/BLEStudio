@@ -24,6 +24,21 @@ channel:
   type: "awgn"
   snr_db: inf       # 高 SNR 以获得准确测量
   freq_offset: 0
+  
+# 数据导出
+io:
+  output:
+    enabled: true
+    bit_width: 12
+    iq_format: "two_column"
+    number_format: "signed"
+    scale_to_full: true
+    export_txt: true
+    export_mat: true
+    export_verilog: true
+    export_tx: true
+
+
 
 output:
   dir: "results"

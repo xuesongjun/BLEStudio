@@ -819,9 +819,37 @@ class BLEVisualizer:
         Returns:
             Plotly Figure 对象
         """
+        # 眼图显示用的目标 samples_per_symbol (太高会导致线条过密)
+        target_sps = 16
+
+        # 如果采样率过高，先下采样
+        if samples_per_symbol > target_sps:
+            downsample_factor = samples_per_symbol // target_sps
+            signal = signal[::downsample_factor]
+            sample_rate = sample_rate / downsample_factor
+            samples_per_symbol = samples_per_symbol // downsample_factor
+
         # 计算瞬时频率
         phase = np.unwrap(np.angle(signal))
         freq_inst = np.diff(phase) * sample_rate / (2 * np.pi)
+
+        # 去除频率尖峰 (由信号幅度过零点引起的相位计算伪影)
+        # 方法: 在低幅度区域用邻近有效值插值替代
+        amplitude = np.abs(signal[:-1])  # 与 freq_inst 对齐
+        amp_threshold = np.max(amplitude) * 0.1  # 10% 幅度阈值
+        valid_mask = amplitude > amp_threshold
+
+        # 用有效区域的值插值填充无效区域
+        if np.any(~valid_mask) and np.any(valid_mask):
+            valid_indices = np.where(valid_mask)[0]
+            invalid_indices = np.where(~valid_mask)[0]
+            freq_inst[invalid_indices] = np.interp(
+                invalid_indices, valid_indices, freq_inst[valid_indices]
+            )
+
+        # 最后再做轻度中值滤波平滑
+        from scipy.ndimage import median_filter
+        freq_inst = median_filter(freq_inst, size=3)
 
         # 每个轨迹包含 2 个符号周期
         trace_len = 2 * samples_per_symbol
