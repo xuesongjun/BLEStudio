@@ -804,54 +804,114 @@ class BLEVisualizer:
         avg_one = np.mean(freq_ones) if len(freq_ones) > 0 else 0
         avg_zero = np.mean(freq_zeros) if len(freq_zeros) > 0 else 0
 
-        # ========== 4. ΔF1 计算 (使用 0x55 pattern: 10101010) ==========
-        # BLE 规范: ΔF1avg 是每个符号内瞬时频率绝对值的平均
-        # ΔF1avg 应在 225-275 kHz 范围内
-        # 支持多种 payload_type 格式: 'PATTERN_10101010', '10101010 (0x55)', '0x55' 等
+        # ========== 4. ΔF1 计算 (使用 0x0F / 11110000 pattern) ==========
+        # BLE RF-PHY 规范:
+        # - 测试信号: 0x0F (00001111 in transmission order, 即 11110000 二进制)
+        # - f1_ccf: 每个 00001111 序列 (8-bit) 所有采样点的平均频率
+        # - ΔF1_max: 第 2,3,6,7 bit (索引 1,2,5,6) 相对于 f1_ccf 的偏移的平均值
+        # - ΔF1_avg: 所有序列的 ΔF1_max 的平均值
+        # - 测量从 payload 第 5 bit 开始，最后 4 bits 丢弃
         payload_upper = payload_type.upper()
-        is_55_pattern = any(p in payload_upper for p in [
-            'PATTERN_10101010', 'PATTERN_01010101',
-            '10101010', '01010101',
-            '0X55', '0XAA'
-        ])
-
-        if is_55_pattern:
-            # 0x55 pattern: ΔF1 = 每个符号瞬时频率绝对值的平均
-            delta_f1_values = symbol_freq_abs_mean.tolist()
-        else:
-            # 非 0x55 pattern: 使用峰值相对于中心的偏移
-            center_freq = (avg_one + avg_zero) / 2
-            delta_f1_values = [abs(peak - center_freq) for peak in symbol_freq_peak]
-
-        # ========== 5. ΔF2 计算 (使用 0x0F pattern: 11110000) ==========
-        # BLE 规范: ΔF2 是 11110000 模式下的稳态频率偏差
-        # ΔF2max >= 185 kHz, ΔF2/ΔF1 >= 0.8
-        # 支持多种 payload_type 格式: 'PATTERN_11110000', '11110000 (0xF0)', '0xF0' 等
         is_0f_pattern = any(p in payload_upper for p in [
             'PATTERN_11110000', 'PATTERN_00001111',
             '11110000', '00001111',
             '0XF0', '0X0F'
         ])
 
-        delta_f2_values = []
+        delta_f1_values = []
 
         if is_0f_pattern:
-            # 0x0F pattern: 8-bit 序列分组 (11110000 或 00001111)
-            # ΔF2 是稳态区域 (第2,3,6,7位) 的频率偏差
-            bits_per_sequence = 8
-            num_sequences = len(symbol_freq_peak) // bits_per_sequence
+            # 按规范: 从第 5 bit 开始测量 (跳过前 4 bits)，最后 4 bits 丢弃
+            measure_start_bit = 4
+            measure_end_bit = len(freq_payload) // samples_per_symbol - 4
+
+            bits_per_sequence = 8  # 00001111 = 8 bits
+            measure_start_sample = measure_start_bit * samples_per_symbol
+
+            # 计算可测量的完整序列数
+            measurable_bits = measure_end_bit - measure_start_bit
+            num_sequences = measurable_bits // bits_per_sequence
+
             for seq_idx in range(num_sequences):
-                seq_start = seq_idx * bits_per_sequence
-                seq_freq = symbol_freq_peak[seq_start:seq_start + bits_per_sequence]
-                if len(seq_freq) == 8:
-                    # 稳态位: 索引 1,2 (1111中间) 和 5,6 (0000中间)
-                    stable_freqs = [seq_freq[i] for i in [1, 2, 5, 6]]
-                    center = (np.mean([seq_freq[1], seq_freq[2]]) +
-                              np.mean([seq_freq[5], seq_freq[6]])) / 2
-                    for sf in stable_freqs:
-                        delta_f2_values.append(abs(sf - center))
+                seq_start_bit = measure_start_bit + seq_idx * bits_per_sequence
+                seq_start_sample = seq_start_bit * samples_per_symbol
+                seq_end_sample = seq_start_sample + bits_per_sequence * samples_per_symbol
+
+                seq_freq = freq_payload[seq_start_sample:seq_end_sample]
+                if len(seq_freq) < bits_per_sequence * samples_per_symbol:
+                    continue
+
+                # f1_ccf: 整个 8-bit 序列的平均频率
+                f1_ccf = np.mean(seq_freq)
+
+                # ΔF1_max: 第 2,3,6,7 bit (索引 1,2,5,6) 相对于 f1_ccf 的偏移平均值
+                # 每个 bit 的偏移 = 该 bit 内所有采样点的平均频率相对于 f1_ccf 的绝对偏移
+                delta_f1_max_values = []
+                for bit_idx in [1, 2, 5, 6]:  # 第 2,3,6,7 bit (0-indexed)
+                    bit_start = bit_idx * samples_per_symbol
+                    bit_end = bit_start + samples_per_symbol
+                    bit_freq = seq_freq[bit_start:bit_end]
+                    bit_avg_freq = np.mean(bit_freq)
+                    delta_f1_max_values.append(abs(bit_avg_freq - f1_ccf))
+
+                # ΔF1_max 是这 4 个 bit 偏移的平均值
+                delta_f1_max = np.mean(delta_f1_max_values)
+                delta_f1_values.append(delta_f1_max)
         else:
-            # 通用计算: 使用峰值频率
+            # 非 0x0F pattern: 使用峰值相对于中心的偏移
+            center_freq = (avg_one + avg_zero) / 2
+            delta_f1_values = [abs(peak - center_freq) for peak in symbol_freq_peak]
+
+        # ========== 5. ΔF2 计算 (使用 0x55 / 10101010 pattern) ==========
+        # BLE RF-PHY 规范:
+        # - 测试信号: 0x55 (10101010 in transmission order)
+        # - f2_ccf: 每个 10101010 序列 (8-bit) 所有采样点的平均频率
+        # - ΔF2_max: 每个 bit 的最大采样值相对于 f2_ccf 的偏移
+        # - ΔF2_avg: 所有 ΔF2_max 的平均值
+        # - 测量从 payload 第 5 bit 开始，最后 4 bits 丢弃
+        is_55_pattern = any(p in payload_upper for p in [
+            'PATTERN_10101010', 'PATTERN_01010101',
+            '10101010', '01010101',
+            '0X55', '0XAA'
+        ])
+
+        delta_f2_values = []
+
+        if is_55_pattern:
+            # 按规范: 从第 5 bit 开始测量 (跳过前 4 bits)，最后 4 bits 丢弃
+            measure_start_bit = 4
+            measure_end_bit = len(freq_payload) // samples_per_symbol - 4
+
+            bits_per_sequence = 8  # 10101010 = 8 bits
+            measure_start_sample = measure_start_bit * samples_per_symbol
+
+            # 计算可测量的完整序列数
+            measurable_bits = measure_end_bit - measure_start_bit
+            num_sequences = measurable_bits // bits_per_sequence
+
+            for seq_idx in range(num_sequences):
+                seq_start_bit = measure_start_bit + seq_idx * bits_per_sequence
+                seq_start_sample = seq_start_bit * samples_per_symbol
+                seq_end_sample = seq_start_sample + bits_per_sequence * samples_per_symbol
+
+                seq_freq = freq_payload[seq_start_sample:seq_end_sample]
+                if len(seq_freq) < bits_per_sequence * samples_per_symbol:
+                    continue
+
+                # f2_ccf: 整个 8-bit 序列的平均频率
+                f2_ccf = np.mean(seq_freq)
+
+                # ΔF2_max: 每个 bit 的最大采样值相对于 f2_ccf 的偏移
+                for bit_idx in range(bits_per_sequence):
+                    bit_start = bit_idx * samples_per_symbol
+                    bit_end = bit_start + samples_per_symbol
+                    bit_freq = seq_freq[bit_start:bit_end]
+                    # 找到最大偏移的采样点 (考虑符号: 1 应该是正偏移, 0 应该是负偏移)
+                    max_sample = bit_freq[np.argmax(np.abs(bit_freq))]
+                    delta_f2_max = abs(max_sample - f2_ccf)
+                    delta_f2_values.append(delta_f2_max)
+        else:
+            # 通用计算: 使用峰值频率相对于中心的偏移
             center_freq = (avg_one + avg_zero) / 2
             for peak in symbol_freq_peak:
                 delta_f2_values.append(abs(peak - center_freq))
@@ -896,8 +956,14 @@ class BLEVisualizer:
         delta_f1_avg = np.mean(delta_f1_values) / 1e3 if delta_f1_values else 0
         delta_f1_max = np.max(delta_f1_values) / 1e3 if delta_f1_values else 0
         delta_f1_min = np.min(delta_f1_values) / 1e3 if delta_f1_values else 0
-        delta_f2_avg = delta_f2_stable / 1e3  # kHz (稳定调制指标)
-        delta_f2_max = np.max(delta_f2_values) / 1e3 if delta_f2_values else delta_f2_avg
+
+        # ΔF2: 优先使用规范计算值，否则使用稳定调制指标
+        if delta_f2_values:
+            delta_f2_avg = np.mean(delta_f2_values) / 1e3  # kHz
+            delta_f2_max = np.max(delta_f2_values) / 1e3  # kHz
+        else:
+            delta_f2_avg = delta_f2_stable / 1e3  # kHz (稳定调制指标)
+            delta_f2_max = delta_f2_avg
 
         # ΔF2/ΔF1 比值 (规范要求 ≥ 0.8)
         delta_f2_ratio = delta_f2_avg / delta_f1_avg if delta_f1_avg > 0 else 0

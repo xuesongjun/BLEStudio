@@ -310,7 +310,7 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
         actual_sps = int(sample_rate / modulator.symbol_rate)
         rf_metrics = viz.calculate_rf_metrics(
             channel_out, sample_rate, actual_sps,
-            test_info['payload_type']
+            payload_type=test_info['payload_type']
         )
         print(f"[RF] ΔF1={rf_metrics['delta_f1_avg']:.1f}kHz, "
               f"ΔF2={rf_metrics['delta_f2_avg']:.1f}kHz, "

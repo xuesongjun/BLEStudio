@@ -1,0 +1,30 @@
+# BLE Studio - ΔF2 测试 (0x55 / 10101010 pattern)
+#
+# 根据 BLE RF-PHY 规范:
+# - ΔF2 使用 0x55 (10101010) pattern 测量
+# - f2_ccf: 每个 10101010 序列的中心频率
+# - ΔF2_max: 每个 bit 的最大采样值相对于 f2_ccf 的偏移
+# - ΔF2_avg: 所有 ΔF2_max 的平均值
+# - 要求: ΔF2_avg ≥ 185 kHz, ΔF2/ΔF1 ≥ 0.8
+
+common:
+  mode: "rf_test"
+  channel: 0
+
+tx:
+  phy_mode: "LE_1M"
+  sample_rate: 8.0e6
+  modulation_index: 0.5
+  bt: 0.5
+  payload_type: "PATTERN_10101010"  # 0x55 pattern for ΔF2 test
+  payload_length: 37
+  whitening: false
+
+channel:
+  type: "awgn"
+  snr_db: inf       # 高 SNR 以获得准确测量
+  freq_offset: 0
+
+output:
+  dir: "results"
+  html_report: true

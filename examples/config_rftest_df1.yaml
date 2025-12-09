@@ -1,0 +1,30 @@
+# BLE Studio - ΔF1 测试 (0x0F / 11110000 pattern)
+#
+# 根据 BLE RF-PHY 规范:
+# - ΔF1 使用 0x0F (11110000) pattern 测量
+# - f1_ccf: 每个 00001111 序列的中心频率
+# - ΔF1_max: 第 2,3,6,7 bit 相对于 f1_ccf 的偏移平均值
+# - ΔF1_avg: 所有 ΔF1_max 的平均值
+# - 要求: 225 kHz ≤ ΔF1_avg ≤ 275 kHz
+
+common:
+  mode: "rf_test"
+  channel: 0
+
+tx:
+  phy_mode: "LE_1M"
+  sample_rate: 8.0e6
+  modulation_index: 0.5
+  bt: 0.5
+  payload_type: "PATTERN_11110000"  # 0x0F pattern for ΔF1 test
+  payload_length: 37
+  whitening: false
+
+channel:
+  type: "awgn"
+  snr_db: inf       # 高 SNR 以获得准确测量
+  freq_offset: 0
+
+output:
+  dir: "results"
+  html_report: true
