@@ -1,0 +1,38 @@
+# Kingst 逻辑分析仪数据转波形配置文件
+# ==========================================
+
+# 输入输出文件
+input_file: "template_data/rssi.bin"
+output_file: "template_data/rssi_wave"  # 可选，默认为 input_file + "_wave"
+
+# 采样参数
+sample_rate: 500e6    # 逻辑分析仪采样率 (Hz)
+data_rate: 16e6       # 数据速率 (Hz)
+
+# 数据格式
+mode: sdr             # sdr 或 ddr
+data_bits: [0, 1, 2, 3, 4, 5, 6, 7, 8]  # 数据位通道列表
+#data_indicator: 10    # DDR 模式的数据指示通道 (IQ 切换信号)
+bit_width: 9          # 数据位宽
+
+# DDR 模式配置 (仅 mode: ddr 时有效)
+rising_edge_data: Q   # 上升沿采样的数据: I 或 Q
+falling_edge_data: I  # 下降沿采样的数据: I 或 Q
+
+# 处理选项
+eye_align: true       # 是否进行眼图对齐
+search_range: 15      # 眼图搜索范围 (采样点数)
+
+# 数据清洗选项
+glitch_filter: true   # 是否启用去毛刺
+glitch_threshold: 0.3 # 毛刺阈值 (相对于数据周期比例，小于此值视为毛刺)
+
+# 输出选项
+plot: true            # 是否显示图表
+plot_eye: false       # 是否显示眼图分析图
+save_formats:         # 保存格式列表
+  - txt
+  - npy
+  - mat
+  - html
+  - mem               # Verilog $readmemh 格式, BLEStudio 兼容

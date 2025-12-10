@@ -1,0 +1,43 @@
+# BLE Studio - 导入 .mat/.bwv 文件仿真
+#
+# 使用: python examples/demo.py examples/config_import_mat.yaml
+#
+# 数据流: 外部 .bwv → [信道入口] → (bypass) → RX 解调
+
+# 公共参数
+common:
+  mode: "rf_test"
+  channel: 0
+
+# 发送端 (需与文件中的信号参数匹配)
+tx:
+  phy_mode: "LE_1M"
+  sample_rate: 120.0e6  # .bwv 文件采样率
+  modulation_index: 0.5
+  bt: 0.5
+  payload_type: "PRBS9"
+  payload_length: 37
+  whitening: false
+
+# 信道模型 (bypass)
+channel:
+  snr_db: 100
+  freq_offset: 0
+
+# 数据导入导出
+io:
+  input:
+    enabled: true
+    file: "C:/workspace/BLEStudio/template_data/test_iq_old.mat"
+    file_type: "mat"
+    mat_i_var: "I_signed"
+    mat_q_var: "Q_signed"
+  output:
+    enabled: false
+
+# 输出
+output:
+  dir: "results"
+  html_report: true
+  html_charts: true
+  theme: "instrument"
