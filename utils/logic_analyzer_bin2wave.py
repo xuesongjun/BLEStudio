@@ -725,51 +725,18 @@ def extract_data(data_dict: dict, clk_array: np.ndarray,
                 if int(data[i]) != int(data[i + 1]):
                     transitions.append(i + 1)
 
-            if before_edge_val is not None and len(transitions) >= 1:
-                if start_val == before_edge_val:
-                    # 情况1: 边沿前后值相同
-                    # 需要进一步判断：比较边沿前后该值的占比
-                    # 例如 111111*110000: 边沿前1多，边沿后1少，说明边沿后的1是残留，应采样0
-                    #
-                    # 重要：只在当前半周期范围内比较，不要跨越到上一路的数据
-                    # 半周期约为 period_samples / 2
+            # 采样逻辑：
+            # 1. 首先在眼图最佳延迟位置采样
+            # 2. 检查采样点是否稳定（前后值一致）
+            # 3. 如果不稳定，使用周期内占比判断（提取规则8/9）
 
-                    half_period = max(8, (search_end - edge_idx) // 2) if next_edge_idx else 8
+            sample_val = int(data[default_sample_idx])
 
-                    # 统计边沿前有多少连续的 start_val（限制在半周期内）
-                    count_before = 0
-                    for i in range(edge_idx - 1, max(0, edge_idx - half_period) - 1, -1):
-                        if int(data[i]) == start_val:
-                            count_before += 1
-                        else:
-                            break
+            # 直接使用眼图最佳位置的采样值
+            # 眼图分析已找到最稳定的采样点，信任该结果
+            bit_val = sample_val
 
-                    # 统计边沿后有多少连续的 start_val
-                    count_after = 0
-                    for i in range(edge_idx, min(search_end, edge_idx + half_period)):
-                        if int(data[i]) == start_val:
-                            count_after += 1
-                        else:
-                            break
-
-                    if count_before > count_after:
-                        # 边沿前占比多，说明边沿后的值是残留，采样后半段
-                        bit_val = int(data[default_sample_idx])
-                        sample_pos = default_sample_idx
-                    else:
-                        # 边沿后占比多或相等，说明边沿后开始的值是真实数据
-                        bit_val = start_val
-                        sample_pos = edge_idx
-                else:
-                    # 情况2: 边沿前后值不同
-                    # 说明数据跟着指示信号变了，当前变化的电平就是真实信号
-                    # 采样边沿后开始位置的值
-                    bit_val = start_val
-                    sample_pos = edge_idx
-            else:
-                # 没有上下文或没有跳变，使用默认采样位置
-                bit_val = int(data[default_sample_idx])
-                sample_pos = default_sample_idx
+            sample_pos = default_sample_idx
 
             bit_pos = config.data_bits.index(bit_idx)
             value |= (bit_val << bit_pos)
@@ -937,11 +904,11 @@ def filter_iq_spikes(i_data: np.ndarray, q_data: np.ndarray,
     i_signed = unsigned_to_signed(i_data.copy(), config.bit_width)
     q_signed = unsigned_to_signed(q_data.copy(), config.bit_width)
 
-    # 毛刺检测阈值: 满量程的 5%，但允许邻居之间有一定变化
+    # 毛刺检测阈值: 满量程的 3%
     max_val = 1 << (config.bit_width - 1)
-    threshold = int(max_val * 0.10)  # 10% 满量程
-    if threshold < 50:
-        threshold = 50  # 最小阈值
+    threshold = int(max_val * 0.03)  # 3% 满量程
+    if threshold < 15:
+        threshold = 15  # 最小阈值
 
     print(f"[IQ过滤] 毛刺检测阈值: {threshold}")
 
@@ -960,20 +927,18 @@ def filter_iq_spikes(i_data: np.ndarray, q_data: np.ndarray,
                 # 邻居之间的差异
                 neighbor_diff = abs(arr[i-1] - arr[i+1])
 
-                # 更严格的孤立尖刺检测:
-                # 1. 当前点与前后都有很大差异 (>threshold)
-                # 2. 邻居之间差异很小 (< threshold/2)
-                # 3. 当前点偏离邻居均值很多
-                if diff_prev > threshold and diff_next > threshold:
-                    if neighbor_diff < threshold // 2:
-                        # 计算邻居均值
-                        neighbor_avg = (arr[i-1] + arr[i+1]) // 2
-                        deviation = abs(arr[i] - neighbor_avg)
+                # 计算邻居均值
+                neighbor_avg = (arr[i-1] + arr[i+1]) // 2
+                deviation = abs(arr[i] - neighbor_avg)
 
-                        # 只有当偏离均值超过阈值时才修复
-                        if deviation > threshold:
-                            arr[i] = neighbor_avg
-                            fixed += 1
+                # 孤立尖刺检测:
+                # 1. 当前点与前后都有较大差异 (>threshold)
+                # 2. 邻居之间差异很小 (< threshold/3)
+                # 3. 偏离均值超过阈值
+                if diff_prev > threshold and diff_next > threshold:
+                    if neighbor_diff < threshold // 3 and deviation > threshold:
+                        arr[i] = neighbor_avg
+                        fixed += 1
 
             total_fixed += fixed
             if fixed == 0:
@@ -1394,13 +1359,6 @@ def main():
     data1, data2, actual_sample_rate, sample_info = extract_data(
         data_dict, clk_array, rising_delays, falling_delays, config
     )
-
-    # IQ尖刺过滤 (可选，默认禁用以避免破坏信号)
-    # if data2 is not None:
-    #     print("\n" + "=" * 60)
-    #     print("IQ Spike Filter")
-    #     print("=" * 60)
-    #     data1, data2 = filter_iq_spikes(data1, data2, config)
 
     # 保存数据
     print("\n" + "=" * 60)

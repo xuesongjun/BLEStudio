@@ -656,3 +656,53 @@ def import_iq_mat(file_path: Union[str, Path],
     """
     importer = IQImporter()
     return importer.import_mat(file_path, i_var, q_var, complex_var)
+
+
+def frequency_shift(signal: np.ndarray, shift_hz: float, sample_rate: float) -> np.ndarray:
+    """
+    对 IQ 信号进行频率搬移（变频）
+
+    原理：将信号乘以复数指数 exp(j * 2 * pi * f_shift * t)
+    - 正频率：上变频（频谱右移）
+    - 负频率：下变频（频谱左移）
+
+    Args:
+        signal: 复数 IQ 信号
+        shift_hz: 频率偏移量 (Hz)
+            - 正值：上变频（如 1e6 表示上移 1 MHz）
+            - 负值：下变频（如 -1e6 表示下移 1 MHz）
+        sample_rate: 采样率 (Hz)
+
+    Returns:
+        频率搬移后的复数 IQ 信号
+
+    Example:
+        # 下变频 1 MHz（去除 1 MHz 中频）
+        baseband = frequency_shift(if_signal, -1e6, 8e6)
+
+        # 上变频 1 MHz（添加 1 MHz 中频）
+        if_signal = frequency_shift(baseband, 1e6, 8e6)
+    """
+    n_samples = len(signal)
+    t = np.arange(n_samples) / sample_rate
+    mixer = np.exp(1j * 2 * np.pi * shift_hz * t)
+    return signal * mixer
+
+
+def frequency_shift_iq(i_data: np.ndarray, q_data: np.ndarray,
+                       shift_hz: float, sample_rate: float) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    对分离的 I/Q 数据进行频率搬移
+
+    Args:
+        i_data: I 路数据（实数数组）
+        q_data: Q 路数据（实数数组）
+        shift_hz: 频率偏移量 (Hz)
+        sample_rate: 采样率 (Hz)
+
+    Returns:
+        (I_shifted, Q_shifted) 频率搬移后的 I/Q 数据
+    """
+    signal = i_data + 1j * q_data
+    shifted = frequency_shift(signal, shift_hz, sample_rate)
+    return shifted.real, shifted.imag

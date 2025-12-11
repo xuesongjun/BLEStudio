@@ -1,0 +1,100 @@
+# BLE Studio 仿真配置文件 - 导入逻辑分析仪 IQ 数据
+#
+# 用途: 将逻辑分析仪提取的 IQ 数据导入 BLE Studio 进行解调分析
+#
+# 数据流: [导入 IQ 文件] → 信道模型 → RX 解调 → 报告
+#
+# 使用方法:
+#   python examples/demo.py config_logic_analyzer_iq_data.yaml
+
+# ============================================================
+# 公共参数
+# ============================================================
+common:
+  # 仿真模式: rf_test (射频测试包)
+  mode: "rf_test"
+  # BLE 信道号 (0-36: 数据信道, 37/38/39: 广播信道)
+  channel: 0
+
+# ============================================================
+# 发送端 (TX) - 仅用于参考，实际使用导入的 IQ 数据
+# ============================================================
+tx:
+  # PHY 模式: LE_1M
+  phy_mode: "LE_1M"
+  # 采样率 (Hz) - 必须与导入的 IQ 数据采样率匹配
+  sample_rate: 16.0e6
+  # 调制指数
+  modulation_index: 0.5
+  # 高斯滤波器 BT 积
+  bt: 0.5
+
+  # RF Test 模式参数 (用于 CRC 校验等)
+  payload_type: "PRBS9"
+  payload_length: 37
+  whitening: false
+  # 接入地址 (0 = 自动，rf_test 默认 0x71764129)
+  # 如果导入的 IQ 数据使用不同的接入地址，需要在这里指定
+  access_address: 0x71764129  # RF Test DTM 接入地址
+
+# ============================================================
+# 信道模型 - 直通模式 (不添加噪声)
+# ============================================================
+channel:
+  # 无噪声
+  ebn0_db: 100
+  # 载波频偏 (Hz) - 如果 IQ 数据已变频到零频，设为 0
+  freq_offset: 0
+
+# ============================================================
+# 接收端 (RX)
+# ============================================================
+rx:
+  enabled: true
+
+# ============================================================
+# 数据导入导出 (IO)
+# ============================================================
+io:
+  # ----- 信道入口: 导入逻辑分析仪提取的 IQ 数据 -----
+  input:
+    enabled: true
+    # IQ 数据文件路径 (由 logic_analyzer_bin2wave.py 生成)
+    file: "template_data/test_iq.txt"
+    file_type: "txt"
+
+    # TXT 格式配置
+    bit_width: 10           # 与逻辑分析仪配置的 bit_width 匹配
+    iq_format: "two_column" # 两列格式: I Q (前两列是hex格式)
+    number_format: "hex"    # 十六进制格式 (0x00E)
+    skip_lines: 3           # 跳过3行注释
+
+    # 采样率 (Hz) - 必须指定
+    sample_rate: 16.0e6     # 与逻辑分析仪提取的采样率匹配
+
+    # 变频 (Hz) - 将信号搬移到零频
+    # 正值: 上变频 (频谱右移), 负值: 下变频 (频谱左移)
+    freq_shift: -1.0e6      # 信号在 +1 MHz, 下变频 1 MHz 搬到零频
+
+  # ----- 信道出口: 导出解调结果 -----
+  output:
+    enabled: true
+    bit_width: 12
+    iq_format: "two_column"
+    number_format: "signed"
+    scale_to_full: true
+    add_header: true
+    export_txt: true
+    export_mat: true
+    export_verilog: false
+    export_separate: false
+    export_tx: false        # 不导出 TX (因为使用导入数据)
+
+# ============================================================
+# 输出配置
+# ============================================================
+output:
+  dir: "results_logic_analyzer"
+  html_report: true
+  html_charts: true
+  theme: "instrument"

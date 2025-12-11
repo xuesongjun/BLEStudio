@@ -27,7 +27,7 @@ from ble_studio import (
     RFTestPayloadType,
     BLEChannel, ChannelConfig, ChannelType,
     IQExporter, IQExportConfig, IQFormat, NumberFormat,
-    import_iq_txt, import_iq_mat,
+    import_iq_txt, import_iq_mat, frequency_shift,
     calculate_rf_metrics,
 )
 
@@ -56,6 +56,7 @@ class SimConfig:
     payload_type: RFTestPayloadType = RFTestPayloadType.PRBS9
     payload_length: int = 37
     whitening: bool = False
+    access_address: int = 0  # 0 = 自动 (rf_test: 0x71764129, advertising: 0x8E89BED6)
 
     # 信道参数
     channel_type: ChannelType = ChannelType.AWGN
@@ -94,6 +95,7 @@ class SimConfig:
             payload_type=getattr(RFTestPayloadType, tx.get('payload_type', 'PRBS9')),
             payload_length=int(tx.get('payload_length', 37)),
             whitening=bool(tx.get('whitening', False)),
+            access_address=int(tx.get('access_address', 0), 16) if isinstance(tx.get('access_address', 0), str) else int(tx.get('access_address', 0)),
             channel_type=ChannelType(ch.get('type', 'awgn')),
             # 支持 ebn0_db (新) 或 snr_db (旧) 字段名
             snr_db=float(ch.get('ebn0_db', ch.get('snr_db', 15))),
@@ -147,6 +149,10 @@ def import_iq(config: dict, default_sample_rate: float) -> Tuple[Optional[np.nda
             skip_lines=int(config.get('skip_lines', 0))
         )
         sample_rate = default_sample_rate
+
+    # 使用配置中指定的采样率 (如果有)
+    if config.get('sample_rate'):
+        sample_rate = float(config['sample_rate'])
 
     print(f"[IO] 已导入 {len(signal)} samples @ {sample_rate/1e6:.2f} MHz")
 
@@ -224,7 +230,7 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
         )
         test_info = packet.get_test_info()
         tx_payload = packet.test_payload
-        access_address = 0x71764129  # DTM
+        access_address = cfg.access_address if cfg.access_address != 0 else 0x71764129  # DTM
         print(f"[TX] {test_info['payload_type']}, {cfg.payload_length} bytes, "
               f"CH{cfg.channel} ({test_info['frequency_mhz']} MHz)")
     else:
@@ -235,7 +241,7 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
         )
         test_info = {'payload_type': 'ADV'}
         tx_payload = cfg.adv_address + cfg.adv_data
-        access_address = 0x8E89BED6  # 广播
+        access_address = cfg.access_address if cfg.access_address != 0 else 0x8E89BED6  # 广播
         print(f"[TX] 广播包, CH{cfg.channel}")
 
     bits = packet.generate()
@@ -255,6 +261,13 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
     if imported_signal is not None:
         channel_in = imported_signal
         print(f"[信道] 使用外部 IQ")
+
+        # 变频处理 (将信号搬移到零频)
+        freq_shift_hz = float(cfg.io_input.get('freq_shift', 0))
+        if freq_shift_hz != 0:
+            channel_in = frequency_shift(channel_in, freq_shift_hz, sample_rate)
+            direction = "上变频" if freq_shift_hz > 0 else "下变频"
+            print(f"[信道] {direction}: {abs(freq_shift_hz)/1e6:.3f} MHz")
     else:
         channel_in = tx_signal
         sample_rate = cfg.sample_rate
@@ -297,6 +310,12 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
         whitening=cfg.whitening if cfg.mode == 'rf_test' else True
     ))
     result = demodulator.demodulate(channel_out)
+
+    # 打印同步状态
+    if result.sync_found:
+        print(f"[RX] access_code: 0x{result.access_address:08X}, sync found")
+    else:
+        print(f"[RX] sync NOT found")
 
     rx_payload = result.pdu[2:] if result.success and len(result.pdu) > 2 else None
     payload_match = (tx_payload == rx_payload) if rx_payload else False

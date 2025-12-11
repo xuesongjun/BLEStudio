@@ -41,6 +41,8 @@ class DemodulationResult:
     rssi: float                        # 信号强度
     freq_offset: float                 # 频偏估计
     timing_offset: float               # 定时偏移估计
+    sync_found: bool = False           # 是否找到同步 (前导码+接入地址)
+    access_address: int = 0            # 检测到的接入地址
 
 
 class BLEDemodulator:
@@ -81,10 +83,20 @@ class BLEDemodulator:
         self.access_address_bits = np.array(bits, dtype=np.uint8)
 
         # 生成前导码 + 接入地址的匹配模式
+        # BLE 规范: 前导码取决于接入地址的 LSB
+        # - 如果 AA LSB = 0, 前导码 = 01010101 (0x55)
+        # - 如果 AA LSB = 1, 前导码 = 10101010 (0xAA)
+        aa_lsb = aa & 1
         if self.config.phy_mode == BLEPhyMode.LE_2M:
-            preamble = np.array([1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0], dtype=np.uint8)
+            if aa_lsb == 0:
+                preamble = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.uint8)
+            else:
+                preamble = np.array([1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0], dtype=np.uint8)
         else:
-            preamble = np.array([1, 0, 1, 0, 1, 0, 1, 0], dtype=np.uint8)
+            if aa_lsb == 0:
+                preamble = np.array([0, 1, 0, 1, 0, 1, 0, 1], dtype=np.uint8)
+            else:
+                preamble = np.array([1, 0, 1, 0, 1, 0, 1, 0], dtype=np.uint8)
 
         self.sync_pattern = np.concatenate([preamble, self.access_address_bits])
 
@@ -435,8 +447,12 @@ class BLEDemodulator:
                 crc_valid=False,
                 rssi=rssi,
                 freq_offset=freq_offset,
-                timing_offset=timing_offset
+                timing_offset=timing_offset,
+                sync_found=False,
+                access_address=0
             )
+
+        # 同步成功
 
         # 8. 提取数据部分 (跳过前导码和接入地址)
         # aa_pos 是 sync_pattern (前导码+接入地址) 的起始位置
@@ -452,7 +468,9 @@ class BLEDemodulator:
                 crc_valid=False,
                 rssi=rssi,
                 freq_offset=freq_offset,
-                timing_offset=timing_offset
+                timing_offset=timing_offset,
+                sync_found=True,
+                access_address=config.access_address
             )
 
         # 9. 去白化 (根据配置决定)
@@ -473,7 +491,9 @@ class BLEDemodulator:
                 crc_valid=False,
                 rssi=rssi,
                 freq_offset=freq_offset,
-                timing_offset=timing_offset
+                timing_offset=timing_offset,
+                sync_found=True,
+                access_address=config.access_address
             )
 
         # PDU 长度
@@ -488,7 +508,9 @@ class BLEDemodulator:
                 crc_valid=False,
                 rssi=rssi,
                 freq_offset=freq_offset,
-                timing_offset=timing_offset
+                timing_offset=timing_offset,
+                sync_found=True,
+                access_address=config.access_address
             )
 
         # 11. CRC 校验
@@ -504,7 +526,9 @@ class BLEDemodulator:
             crc_valid=crc_valid,
             rssi=rssi,
             freq_offset=freq_offset,
-            timing_offset=timing_offset
+            timing_offset=timing_offset,
+            sync_found=True,
+            access_address=config.access_address
         )
 
     def find_packets(self, signal: np.ndarray, max_packets: int = 10) -> List[DemodulationResult]:

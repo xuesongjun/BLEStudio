@@ -16,8 +16,9 @@ data_indicator: 10    # DDR 模式的数据指示通道 (IQ 切换信号)
 bit_width: 10         # 数据位宽
 
 # DDR 模式配置 (仅 mode: ddr 时有效)
-rising_edge_data: I   # 上升沿采样的数据: I 或 Q
-falling_edge_data: Q  # 下降沿采样的数据: I 或 Q
+# 注意: 如果解调出的接入地址与预期正好相反（取反），说明 I/Q 顺序反了
+rising_edge_data: Q   # 上升沿采样的数据: I 或 Q (原来是 I, 交换后是 Q)
+falling_edge_data: I  # 下降沿采样的数据: I 或 Q (原来是 Q, 交换后是 I)
 
 # 处理选项
 eye_align: true       # 是否进行眼图对齐

@@ -63,4 +63,6 @@ from .iq_io import (
     export_iq_verilog,
     import_iq_txt,
     import_iq_mat,
+    frequency_shift,
+    frequency_shift_iq,
 )
