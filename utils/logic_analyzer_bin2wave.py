@@ -615,13 +615,44 @@ def extract_data(data_dict: dict, clk_array: np.ndarray,
     falling_edges = np.where(clk_diff == -1)[0] + 1
 
     def extract_value(edge_idx: int, delays: dict) -> int:
-        """提取一个采样点的值"""
+        """提取一个采样点的值
+
+        双稳态检测：当 edge 到 sample_idx 之间存在跳变时，
+        根据跳变点位置决定使用哪个值：
+        - 跳变点靠近 edge（前1/3）→ 正常过渡 → 用 sample_idx 值
+        - 跳变点在中后部（后2/3）→ 双稳态 → 用 edge 后第一个稳定值
+        """
         value = 0
         for bit_idx in config.data_bits:
             delay = delays.get(bit_idx, 0)
             sample_idx = edge_idx + delay
             if 0 <= sample_idx < len(data_dict[bit_idx]):
-                bit_val = int(data_dict[bit_idx][sample_idx])
+                data = data_dict[bit_idx]
+
+                # 默认使用 sample_idx 位置的值
+                bit_val = int(data[sample_idx])
+
+                # 双稳态检测：只在 delay > 2 时进行
+                if delay > 2:
+                    # 检查 edge 到 sample_idx 之间是否有跳变
+                    window = data[edge_idx:sample_idx + 1]
+                    if len(window) >= 3:
+                        # 找到第一个跳变点位置（相对于 edge）
+                        transitions = []
+                        for i in range(1, len(window)):
+                            if window[i] != window[i-1]:
+                                transitions.append(i)
+
+                        if transitions:
+                            first_trans = transitions[0]
+                            window_len = len(window)
+
+                            # 如果跳变点在窗口的后 2/3（相对位置 > 1/3）
+                            # 说明是双稳态：前面稳定一段，后面又稳定一段
+                            # 应该使用 edge 后的第一个值
+                            if first_trans > window_len // 3:
+                                bit_val = int(window[0])
+
                 # 计算在值中的位置
                 bit_pos = config.data_bits.index(bit_idx)
                 value |= (bit_val << bit_pos)
