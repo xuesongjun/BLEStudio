@@ -25,7 +25,7 @@ search_range: 15      # 眼图搜索范围 (采样点数)
 
 # 数据清洗选项
 glitch_filter: true   # 是否启用去毛刺
-glitch_threshold: 0.3  # 毛刺阈值: 提高到45%以更激进地过滤
+glitch_threshold: 0.2  # 毛刺阈值: 提高到45%以更激进地过滤
 adaptive_filter: false # 暂时关闭自适应过滤，只用基础过滤
 
 # 输出选项

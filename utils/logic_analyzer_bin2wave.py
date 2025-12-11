@@ -189,15 +189,17 @@ def load_binary_data(file_path: str, config: Config) -> tuple:
     return data_dict, clk_array, n_samples
 
 
-def filter_glitches(data_dict: dict, config: Config) -> dict:
+def filter_glitches(data_dict: dict, config: Config, clk_array: np.ndarray = None) -> dict:
     """
     过滤数据通道中的毛刺
 
     检测数据中的短脉冲，将其视为毛刺并剔除。
+    新增策略：如果短脉冲位于指示信号（clk）周期的前半段，则保留（可能是双稳态的第一个区间）
 
     Args:
         data_dict: 各通道的数据字典
         config: 配置对象
+        clk_array: 时钟/指示信号数组（可选，用于前半段保护）
 
     Returns:
         过滤后的数据字典
@@ -220,13 +222,45 @@ def filter_glitches(data_dict: dict, config: Config) -> dict:
     print(f"\n[数据清洗] 数据翻转周期: {data_period_samples:.1f} 采样点")
     print(f"[数据清洗] 毛刺阈值: < {min_pulse_width} 采样点 (< {config.glitch_threshold*100:.0f}% 数据周期)")
 
+    # 预计算时钟边沿位置（用于前半段保护）
+    clk_rising_edges = None
+    clk_falling_edges = None
+    half_period = int(data_period_samples / 2)
+
+    if clk_array is not None:
+        clk_diff = np.diff(clk_array.astype(np.int8))
+        clk_rising_edges = np.where(clk_diff == 1)[0] + 1
+        clk_falling_edges = np.where(clk_diff == -1)[0] + 1
+        print(f"[数据清洗] 启用前半段保护: 时钟边沿后 {half_period} 采样点内的短脉冲不过滤")
+
+    def is_in_first_half(pulse_start: int, pulse_end: int) -> bool:
+        """检查脉冲是否在某个时钟周期的前半段"""
+        if clk_rising_edges is None or clk_falling_edges is None:
+            return False
+
+        pulse_mid = (pulse_start + pulse_end) // 2
+
+        # 检查是否在上升沿后的前半段
+        for edge in clk_rising_edges:
+            if edge <= pulse_mid < edge + half_period:
+                return True
+
+        # 检查是否在下降沿后的前半段
+        for edge in clk_falling_edges:
+            if edge <= pulse_mid < edge + half_period:
+                return True
+
+        return False
+
     filtered_dict = {}
     total_glitches = 0
+    protected_count = 0
 
     for ch, data in data_dict.items():
         # 复制数据以免修改原始数据
         filtered_data = data.copy()
         glitch_count = 0
+        ch_protected = 0
 
         # 迭代去毛刺，直到没有毛刺为止
         max_iterations = 100
@@ -255,6 +289,13 @@ def filter_glitches(data_dict: dict, config: Config) -> dict:
                 if glitch_mask[i]:
                     start_idx = edges[i]
                     end_idx = edges[i + 1] if i + 1 < len(edges) else len(filtered_data) - 1
+
+                    # 新增：检查是否在时钟周期的前半段，如果是则跳过（保护）
+                    if is_in_first_half(start_idx, end_idx):
+                        ch_protected += 1
+                        i += 2  # 跳过这个脉冲
+                        continue
+
                     original_value = filtered_data[start_idx]
                     to_fix.append((start_idx, end_idx, original_value))
                     i += 2  # 跳过下一个间隔，避免重叠
@@ -271,11 +312,15 @@ def filter_glitches(data_dict: dict, config: Config) -> dict:
 
         filtered_dict[ch] = filtered_data
         total_glitches += glitch_count
+        protected_count += ch_protected
 
-        if glitch_count > 0:
-            print(f"[数据清洗] ch{ch}: 修复 {glitch_count} 个毛刺")
+        if glitch_count > 0 or ch_protected > 0:
+            msg = f"[数据清洗] ch{ch}: 修复 {glitch_count} 个毛刺"
+            if ch_protected > 0:
+                msg += f", 保护 {ch_protected} 个前半段脉冲"
+            print(msg)
 
-    print(f"[数据清洗] 总计修复 {total_glitches} 个毛刺")
+    print(f"[数据清洗] 总计修复 {total_glitches} 个毛刺, 保护 {protected_count} 个前半段脉冲")
 
     return filtered_dict
 
@@ -520,7 +565,7 @@ def analyze_eye_diagram(data_dict: dict, clk_array: np.ndarray,
                 min_score = min(min_score, score)
             combined_scores[offset] = min_score
 
-        # 第三步：找到综合最佳的时间窗口
+        # 第三步：找到综合最佳的时间窗口（优先选择靠前的区域）
         base_offset = 0
         if combined_scores:
             best_combined_score = max(combined_scores.values())
@@ -529,17 +574,28 @@ def analyze_eye_diagram(data_dict: dict, clk_array: np.ndarray,
                                   if score >= best_combined_score - 0.05])  # 5% 容差
 
             if good_offsets:
-                # 找第一个连续区域
-                first_region = [good_offsets[0]]
+                # 找所有连续区域
+                all_regions = []
+                current_region = [good_offsets[0]]
                 for i in range(1, len(good_offsets)):
                     if good_offsets[i] == good_offsets[i-1] + 1:
-                        first_region.append(good_offsets[i])
+                        current_region.append(good_offsets[i])
                     else:
-                        break
+                        all_regions.append(current_region)
+                        current_region = [good_offsets[i]]
+                all_regions.append(current_region)
+
+                # 优先选择第一个区域（靠近边沿的区域）
+                # 这符合"双稳态时选择第一个稳定区间"的策略
+                first_region = all_regions[0]
 
                 # 选择窗口中心作为基准偏移
                 base_offset = first_region[len(first_region) // 2]
-                print(f"  [最佳窗口] 偏移 {first_region[0]}-{first_region[-1]}, 中心={base_offset}, 综合稳定性={best_combined_score*100:.1f}%")
+
+                if len(all_regions) > 1:
+                    print(f"  [最佳窗口] 发现 {len(all_regions)} 个稳定区域，选择第一个: 偏移 {first_region[0]}-{first_region[-1]}, 中心={base_offset}, 综合稳定性={best_combined_score*100:.1f}%")
+                else:
+                    print(f"  [最佳窗口] 偏移 {first_region[0]}-{first_region[-1]}, 中心={base_offset}, 综合稳定性={best_combined_score*100:.1f}%")
 
         # 第四步：在最佳窗口附近为每个 bit 选择具体的延迟
         for bit_idx in sorted(data_dict.keys()):
@@ -614,49 +670,112 @@ def extract_data(data_dict: dict, clk_array: np.ndarray,
     rising_edges = np.where(clk_diff == 1)[0] + 1
     falling_edges = np.where(clk_diff == -1)[0] + 1
 
-    def extract_value(edge_idx: int, delays: dict) -> int:
+    def extract_value(edge_idx: int, delays: dict, next_edge_idx: int = None,
+                       prev_values: dict = None) -> tuple:
         """提取一个采样点的值
 
-        双稳态检测：当 edge 到 sample_idx 之间存在跳变时，
-        根据跳变点位置决定使用哪个值：
-        - 跳变点靠近 edge（前1/3）→ 正常过渡 → 用 sample_idx 值
-        - 跳变点在中后部（后2/3）→ 双稳态 → 用 edge 后第一个稳定值
+        策略（基于上下文判断）：
+        clk 高电平=I数据，低电平=Q数据
+        边沿前是上一路数据，边沿后是当前路数据
+
+        1. 比较边沿前的值与边沿后开始时的值
+        2. 如果相同：说明边沿后开始的值与上一路一致，是真实数据（后面的跳变是下一数据提前来了）
+        3. 如果不同：说明边沿后开始的值是旧数据残留，真实数据在后面
+
+        Args:
+            edge_idx: 当前边沿位置
+            delays: 各 bit 的延迟（作为参考/后备）
+            next_edge_idx: 下一个边沿位置（用于确定周期范围）
+            prev_values: 上一周期各 bit 的采样值 {bit_idx: value}（未使用，保留接口）
+
+        Returns:
+            (value, sample_positions): 采样值和每个 bit 的实际采样位置字典
         """
         value = 0
+        sample_positions = {}  # bit_idx -> 实际采样位置
+
+        # 确定当前周期的搜索范围
+        if next_edge_idx is None:
+            avg_delay = int(np.mean(list(delays.values()))) if delays else 8
+            period_end = edge_idx + avg_delay + 5
+        else:
+            period_end = next_edge_idx
+
         for bit_idx in config.data_bits:
+            if bit_idx not in data_dict:
+                continue
+
+            data = data_dict[bit_idx]
             delay = delays.get(bit_idx, 0)
-            sample_idx = edge_idx + delay
-            if 0 <= sample_idx < len(data_dict[bit_idx]):
-                data = data_dict[bit_idx]
+            default_sample_idx = edge_idx + delay
 
-                # 默认使用 sample_idx 位置的值
-                bit_val = int(data[sample_idx])
+            if default_sample_idx >= len(data):
+                continue
 
-                # 双稳态检测：只在 delay > 2 时进行
-                if delay > 2:
-                    # 检查 edge 到 sample_idx 之间是否有跳变
-                    window = data[edge_idx:sample_idx + 1]
-                    if len(window) >= 3:
-                        # 找到第一个跳变点位置（相对于 edge）
-                        transitions = []
-                        for i in range(1, len(window)):
-                            if window[i] != window[i-1]:
-                                transitions.append(i)
+            search_end = min(period_end, len(data) - 1)
 
-                        if transitions:
-                            first_trans = transitions[0]
-                            window_len = len(window)
+            # 边沿前的值（边沿位置前一个采样点）- 这是上一路(I/Q)的数据
+            before_edge_val = int(data[edge_idx - 1]) if edge_idx > 0 else None
+            # 边沿后开始时的值
+            start_val = int(data[edge_idx])
 
-                            # 如果跳变点在窗口的后 2/3（相对位置 > 1/3）
-                            # 说明是双稳态：前面稳定一段，后面又稳定一段
-                            # 应该使用 edge 后的第一个值
-                            if first_trans > window_len // 3:
-                                bit_val = int(window[0])
+            # 找到周期内所有跳变点
+            transitions = []
+            for i in range(edge_idx, search_end - 1):
+                if int(data[i]) != int(data[i + 1]):
+                    transitions.append(i + 1)
 
-                # 计算在值中的位置
-                bit_pos = config.data_bits.index(bit_idx)
-                value |= (bit_val << bit_pos)
-        return value
+            if before_edge_val is not None and len(transitions) >= 1:
+                if start_val == before_edge_val:
+                    # 情况1: 边沿前后值相同
+                    # 需要进一步判断：比较边沿前后该值的占比
+                    # 例如 111111*110000: 边沿前1多，边沿后1少，说明边沿后的1是残留，应采样0
+                    #
+                    # 重要：只在当前半周期范围内比较，不要跨越到上一路的数据
+                    # 半周期约为 period_samples / 2
+
+                    half_period = max(8, (search_end - edge_idx) // 2) if next_edge_idx else 8
+
+                    # 统计边沿前有多少连续的 start_val（限制在半周期内）
+                    count_before = 0
+                    for i in range(edge_idx - 1, max(0, edge_idx - half_period) - 1, -1):
+                        if int(data[i]) == start_val:
+                            count_before += 1
+                        else:
+                            break
+
+                    # 统计边沿后有多少连续的 start_val
+                    count_after = 0
+                    for i in range(edge_idx, min(search_end, edge_idx + half_period)):
+                        if int(data[i]) == start_val:
+                            count_after += 1
+                        else:
+                            break
+
+                    if count_before > count_after:
+                        # 边沿前占比多，说明边沿后的值是残留，采样后半段
+                        bit_val = int(data[default_sample_idx])
+                        sample_pos = default_sample_idx
+                    else:
+                        # 边沿后占比多或相等，说明边沿后开始的值是真实数据
+                        bit_val = start_val
+                        sample_pos = edge_idx
+                else:
+                    # 情况2: 边沿前后值不同
+                    # 说明数据跟着指示信号变了，当前变化的电平就是真实信号
+                    # 采样边沿后开始位置的值
+                    bit_val = start_val
+                    sample_pos = edge_idx
+            else:
+                # 没有上下文或没有跳变，使用默认采样位置
+                bit_val = int(data[default_sample_idx])
+                sample_pos = default_sample_idx
+
+            bit_pos = config.data_bits.index(bit_idx)
+            value |= (bit_val << bit_pos)
+            sample_positions[bit_idx] = sample_pos
+
+        return value, sample_positions
 
     if config.mode == "ddr":
         # DDR 模式: 上升沿和下降沿各采样一次
@@ -669,13 +788,52 @@ def extract_data(data_dict: dict, clk_array: np.ndarray,
 
         print(f"[INFO] 检测到 {len(i_edges)} 个 I 采样点, {len(q_edges)} 个 Q 采样点")
 
-        i_values = [extract_value(idx, i_delays) for idx in i_edges if idx + config.search_range < len(clk_array)]
-        q_values = [extract_value(idx, q_delays) for idx in q_edges if idx + config.search_range < len(clk_array)]
+        # 合并所有边沿并排序，用于确定每个周期的范围
+        all_edges_sorted = np.sort(np.concatenate([rising_edges, falling_edges]))
+
+        def get_next_edge(edge_idx):
+            """获取下一个边沿位置"""
+            pos = np.searchsorted(all_edges_sorted, edge_idx, side='right')
+            if pos < len(all_edges_sorted):
+                return all_edges_sorted[pos]
+            return None
+
+        # 提取 I 值和采样位置
+        i_values = []
+        i_sample_positions = []  # 每个采样的位置信息列表
+        prev_i_bits = {}  # 上一次各 bit 的采样值
+        for idx in i_edges:
+            if idx + config.search_range < len(clk_array):
+                next_edge = get_next_edge(idx)
+                val, positions = extract_value(idx, i_delays, next_edge, prev_i_bits)
+                i_values.append(val)
+                i_sample_positions.append(positions)
+                # 更新上一次的采样值
+                for bit_idx in config.data_bits:
+                    if bit_idx in positions:
+                        prev_i_bits[bit_idx] = int(data_dict[bit_idx][positions[bit_idx]])
+
+        # 提取 Q 值和采样位置
+        q_values = []
+        q_sample_positions = []
+        prev_q_bits = {}  # 上一次各 bit 的采样值
+        for idx in q_edges:
+            if idx + config.search_range < len(clk_array):
+                next_edge = get_next_edge(idx)
+                val, positions = extract_value(idx, q_delays, next_edge, prev_q_bits)
+                q_values.append(val)
+                q_sample_positions.append(positions)
+                # 更新上一次的采样值
+                for bit_idx in config.data_bits:
+                    if bit_idx in positions:
+                        prev_q_bits[bit_idx] = int(data_dict[bit_idx][positions[bit_idx]])
 
         # 对齐长度
         min_len = min(len(i_values), len(q_values))
         i_data = np.array(i_values[:min_len], dtype=np.uint16)
         q_data = np.array(q_values[:min_len], dtype=np.uint16)
+        i_sample_positions = i_sample_positions[:min_len]
+        q_sample_positions = q_sample_positions[:min_len]
 
         # DDR 模式: data_rate 是时钟翻转速率，真实 IQ 采样率 = data_rate / 2
         # (每两个翻转产生一对 IQ 样本)
@@ -692,7 +850,15 @@ def extract_data(data_dict: dict, clk_array: np.ndarray,
         print(f"[INFO] IQ 采样率: {actual_sample_rate/1e6:.3f} MHz")
         print(f"[INFO] 提取 {min_len} 个 IQ 采样点")
 
-        return i_data, q_data, actual_sample_rate
+        # 返回数据和采样位置信息
+        sample_info = {
+            'i_edges': i_edges[:min_len],
+            'q_edges': q_edges[:min_len],
+            'i_sample_positions': i_sample_positions,
+            'q_sample_positions': q_sample_positions,
+        }
+
+        return i_data, q_data, actual_sample_rate, sample_info
 
     else:
         # SDR 模式: 仅在一个边沿采样
@@ -701,7 +867,29 @@ def extract_data(data_dict: dict, clk_array: np.ndarray,
 
         print(f"[INFO] 检测到 {len(edges)} 个采样点")
 
-        values = [extract_value(idx, delays) for idx in edges if idx + config.search_range < len(clk_array)]
+        # 合并所有边沿用于确定周期范围
+        all_edges_sorted = np.sort(np.concatenate([rising_edges, falling_edges]))
+
+        def get_next_edge(edge_idx):
+            pos = np.searchsorted(all_edges_sorted, edge_idx, side='right')
+            if pos < len(all_edges_sorted):
+                return all_edges_sorted[pos]
+            return None
+
+        values = []
+        sample_positions = []
+        prev_bits = {}  # 上一次各 bit 的采样值
+        for idx in edges:
+            if idx + config.search_range < len(clk_array):
+                next_edge = get_next_edge(idx)
+                val, positions = extract_value(idx, delays, next_edge, prev_bits)
+                values.append(val)
+                sample_positions.append(positions)
+                # 更新上一次的采样值
+                for bit_idx in config.data_bits:
+                    if bit_idx in positions:
+                        prev_bits[bit_idx] = int(data_dict[bit_idx][positions[bit_idx]])
+
         data = np.array(values, dtype=np.uint16)
 
         actual_sample_rate = config.data_rate
@@ -713,7 +901,12 @@ def extract_data(data_dict: dict, clk_array: np.ndarray,
         print(f"[INFO] 采样率: {actual_sample_rate/1e6:.3f} MHz")
         print(f"[INFO] 提取 {len(data)} 个采样点")
 
-        return data, None, actual_sample_rate
+        sample_info = {
+            'edges': edges[:len(data)],
+            'sample_positions': sample_positions,
+        }
+
+        return data, None, actual_sample_rate, sample_info
 
 
 def unsigned_to_signed(data: np.ndarray, bit_width: int) -> np.ndarray:
@@ -1127,7 +1320,7 @@ def main():
         print("\n" + "=" * 60)
         print("Glitch Filter")
         print("=" * 60)
-        data_dict = filter_glitches(data_dict, config)
+        data_dict = filter_glitches(data_dict, config, clk_array)
 
     # 眼图分析
     if config.eye_align:
@@ -1198,7 +1391,7 @@ def main():
     print("\n" + "=" * 60)
     print("Data Extraction")
     print("=" * 60)
-    data1, data2, actual_sample_rate = extract_data(
+    data1, data2, actual_sample_rate, sample_info = extract_data(
         data_dict, clk_array, rising_delays, falling_delays, config
     )
 

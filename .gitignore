@@ -76,3 +76,8 @@ Thumbs.db
 
 # Local config
 *.local.yaml
+
+.html
+.npy
+.mat
+
