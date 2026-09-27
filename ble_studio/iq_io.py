@@ -3,11 +3,76 @@ BLE Studio IQ 数据导入导出模块
 支持 Verilog 硬件仿真平台的 IQ 数据文件格式
 """
 
+import hashlib
+import json
+import tempfile
+
 import numpy as np
 from pathlib import Path
-from typing import Optional, Tuple, Union, Literal
+from typing import Any, Dict, Optional, Tuple, Union, Literal
 from dataclasses import dataclass
 from enum import Enum
+
+
+def _json_default(value: Any) -> Any:
+    """将常用标量类型转换为 JSON 原生类型。"""
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, np.generic):
+        return value.item()
+    raise TypeError(
+        f"Object of type {type(value).__name__} is not JSON serializable"
+    )
+
+
+def write_pretty_json(file_path: Union[str, Path], data: Any) -> Path:
+    """写入便于人工阅读的 strict JSON，并保证文件以换行结尾。"""
+    # 先完成序列化校验，避免 NaN/Infinity 等非法值留下半写入文件。
+    text = json.dumps(
+        data,
+        ensure_ascii=False,
+        indent=2,
+        allow_nan=False,
+        default=_json_default,
+    )
+    output = Path(file_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            dir=output.parent,
+            prefix=f".{output.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = Path(handle.name)
+            handle.write(text)
+            handle.write("\n")
+        temp_path.replace(output)
+    except Exception:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        raise
+    return output
+
+
+def describe_file(file_path: Union[str, Path]) -> Dict[str, Any]:
+    """返回关联文件的名称、字节数和 SHA-256。"""
+    path = Path(file_path)
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "name": path.name,
+        "size_bytes": path.stat().st_size,
+        "sha256": digest.hexdigest(),
+    }
 
 
 class IQFormat(Enum):
@@ -55,6 +120,66 @@ class IQExporter:
     def __init__(self, config: Optional[IQExportConfig] = None):
         self.config = config or IQExportConfig()
 
+    @staticmethod
+    def _round_ties_away_from_zero(values: np.ndarray) -> np.ndarray:
+        """按 MATLAB round 语义处理正负 half-LSB。"""
+        return np.copysign(np.floor(np.abs(values) + 0.5), values)
+
+    def _quantize_with_details(
+        self, signal: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+        """量化 IQ，并返回与本次结果严格对应的参数和饱和统计。"""
+        cfg = self.config
+        max_val = 2 ** (cfg.bit_width - 1) - 1
+        min_val = -2 ** (cfg.bit_width - 1)
+        full_scale = 2 ** (cfg.bit_width - 1)
+
+        samples = np.asarray(signal)
+        i_data = samples.real
+        q_data = samples.imag
+
+        if cfg.frac_bits > 0:
+            scale = float(2 ** cfg.frac_bits)
+        elif cfg.scale_to_full and samples.size:
+            max_amp = max(
+                float(np.max(np.abs(i_data))),
+                float(np.max(np.abs(q_data))),
+            )
+            scale = float(full_scale / max_amp) if max_amp > 0 else float(full_scale)
+        else:
+            scale = float(full_scale)
+
+        i_rounded = self._round_ties_away_from_zero(i_data * scale)
+        q_rounded = self._round_ties_away_from_zero(q_data * scale)
+        saturation_i = int(
+            np.count_nonzero((i_rounded < min_val) | (i_rounded > max_val))
+        )
+        saturation_q = int(
+            np.count_nonzero((q_rounded < min_val) | (q_rounded > max_val))
+        )
+
+        # clip 后再转换为整数，避免超范围浮点值在转换阶段先发生整数溢出。
+        i_quant = np.clip(i_rounded, min_val, max_val).astype(np.int32)
+        q_quant = np.clip(q_rounded, min_val, max_val).astype(np.int32)
+        q_format = (
+            f"Q{cfg.bit_width - cfg.frac_bits}.{cfg.frac_bits}"
+            if cfg.frac_bits > 0
+            else None
+        )
+        details: Dict[str, Any] = {
+            "bit_width": cfg.bit_width,
+            "frac_bits": cfg.frac_bits,
+            "scale_to_full": cfg.scale_to_full,
+            "scale_factor": scale,
+            "rounding": "ties_away_from_zero",
+            "signed_min": min_val,
+            "signed_max": max_val,
+            "saturation_i": saturation_i,
+            "saturation_q": saturation_q,
+            "q_format": q_format,
+        }
+        return i_quant, q_quant, details
+
     def quantize(self, signal: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         将复数 IQ 信号量化为定点数
@@ -65,36 +190,13 @@ class IQExporter:
         Returns:
             (I_quantized, Q_quantized) 量化后的 I/Q 数组
         """
-        cfg = self.config
-        max_val = 2 ** (cfg.bit_width - 1) - 1  # 有符号最大值 (如 2047)
-        min_val = -2 ** (cfg.bit_width - 1)     # 有符号最小值 (如 -2048)
-        full_scale = 2 ** (cfg.bit_width - 1)   # 满量程缩放因子 (如 2048)
-
-        # 提取 I/Q 分量
-        i_data = signal.real
-        q_data = signal.imag
-
-        # 缩放到满量程
-        if cfg.scale_to_full:
-            max_amp = max(np.max(np.abs(i_data)), np.max(np.abs(q_data)))
-            if max_amp > 0:
-                scale = full_scale / max_amp  # 满量程缩放
-            else:
-                scale = full_scale
-        else:
-            # 假设输入已归一化到 [-1, 1]
-            scale = full_scale
-
-        # Q 格式缩放 (如果有小数位)
-        if cfg.frac_bits > 0:
-            scale = 2 ** cfg.frac_bits
-
-        # 量化: 使用 round 四舍五入 (与 MATLAB 一致)
-        # 先 round 再 clip 确保值在 [-2048, 2047] 范围内
-        i_quant = np.clip(np.round(i_data * scale).astype(np.int32), min_val, max_val)
-        q_quant = np.clip(np.round(q_data * scale).astype(np.int32), min_val, max_val)
-
+        i_quant, q_quant, _ = self._quantize_with_details(signal)
         return i_quant, q_quant
+
+    def quantization_details(self, signal: np.ndarray) -> Dict[str, Any]:
+        """返回当前配置下实际采用的缩放、舍入和饱和信息。"""
+        _, _, details = self._quantize_with_details(signal)
+        return details
 
     def to_unsigned(self, data: np.ndarray) -> np.ndarray:
         """有符号转无符号 (补码)"""
@@ -128,8 +230,8 @@ class IQExporter:
             self.config = config
         cfg = self.config
 
-        # 量化
-        i_quant, q_quant = self.quantize(signal)
+        # 量化与 metadata 必须来自同一次计算。
+        i_quant, q_quant, quantization = self._quantize_with_details(signal)
 
         file_path = Path(file_path)
         lines = []
@@ -138,7 +240,10 @@ class IQExporter:
         if cfg.add_header:
             lines.append(f"// BLE Studio IQ Data Export")
             lines.append(f"// Bit Width: {cfg.bit_width}")
-            lines.append(f"// Q Format: Q{cfg.bit_width - cfg.frac_bits}.{cfg.frac_bits}")
+            if quantization["q_format"] is not None:
+                lines.append(f"// Q Format: {quantization['q_format']}")
+            lines.append(f"// Scale Factor: {quantization['scale_factor']:.12g}")
+            lines.append(f"// Rounding: {quantization['rounding']}")
             lines.append(f"// IQ Format: {cfg.iq_format.value}")
             lines.append(f"// Number Format: {cfg.number_format.value}")
             lines.append(f"// Samples: {len(signal)}")
@@ -194,9 +299,10 @@ class IQExporter:
             'file': str(file_path),
             'samples': len(signal),
             'bit_width': cfg.bit_width,
-            'q_format': f"Q{cfg.bit_width - cfg.frac_bits}.{cfg.frac_bits}",
+            'q_format': quantization["q_format"],
             'iq_format': cfg.iq_format.value,
             'number_format': cfg.number_format.value,
+            'quantization': quantization,
         }
 
     def export_separate_files(self, signal: np.ndarray, i_path: Union[str, Path],
@@ -213,7 +319,7 @@ class IQExporter:
             导出信息字典
         """
         cfg = self.config
-        i_quant, q_quant = self.quantize(signal)
+        i_quant, q_quant, quantization = self._quantize_with_details(signal)
 
         def format_value(v):
             if cfg.number_format == NumberFormat.HEX:
@@ -238,7 +344,8 @@ class IQExporter:
             'q_file': str(q_path),
             'samples': len(signal),
             'bit_width': cfg.bit_width,
-            'q_format': f"Q{cfg.bit_width - cfg.frac_bits}.{cfg.frac_bits}",
+            'q_format': quantization["q_format"],
+            'quantization': quantization,
         }
 
     def export_verilog_mem(self, signal: np.ndarray, file_path: Union[str, Path]) -> dict:
@@ -253,7 +360,7 @@ class IQExporter:
             导出信息字典
         """
         cfg = self.config
-        i_quant, q_quant = self.quantize(signal)
+        i_quant, q_quant, quantization = self._quantize_with_details(signal)
 
         file_path = Path(file_path)
         lines = []
@@ -278,6 +385,7 @@ class IQExporter:
             'bit_width': cfg.bit_width,
             'packed_width': total_bits,
             'format': 'verilog_memh',
+            'quantization': quantization,
         }
 
 

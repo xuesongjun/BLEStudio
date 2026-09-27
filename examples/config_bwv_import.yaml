@@ -22,7 +22,7 @@ channel:
 io:
   input:
     enabled: true
-    file: "template_data/BLE_1M.bwv"
+    file: "data/iq/BLE_1M.bwv"
     file_type: "mat"
     mat_complex_var: "wave"  # bwv 文件中的复数波形变量名
 

@@ -8,7 +8,7 @@ common:
 # 发送端
 tx:
   phy_mode: "LE_1M"
-  sample_rate: 8.0e6
+  sample_rate: 16.0e6
   modulation_index: 0.5
   bt: 0.5
   payload_type: "PRBS9"
@@ -17,7 +17,7 @@ tx:
 
 # 信道模型 (理想)
 channel:
-  snr_db: 30
+  snr_db: inf
   freq_offset: 0
 
 # 输出

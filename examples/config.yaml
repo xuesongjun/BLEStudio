@@ -23,7 +23,7 @@ common:
 # 发送端 (TX)
 # ============================================================
 tx:
-  # PHY 模式: LE_1M, LE_2M, LE_CODED_S2, LE_CODED_S8
+  # PHY 模式: LE_1M, LE_2M；LE Coded 当前尚未实现
   phy_mode: "LE_1M"
   # 采样率 (Hz)
   sample_rate: 8.0e6
@@ -41,6 +41,9 @@ tx:
   payload_type: "PRBS9"
   payload_length: 37
   whitening: false
+  # 0 表示按模式选择默认 Access Address
+  access_address: 0
+  crc_init: 0x555555
 
 # ============================================================
 # 信道模型

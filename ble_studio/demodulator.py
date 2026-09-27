@@ -13,7 +13,14 @@ import numpy as np
 from typing import Optional, Tuple, List
 from dataclasses import dataclass
 from scipy import signal as scipy_signal
-from .packet import BLEPhyMode, BLEPacket
+from .packet import (
+    BLEPhyMode,
+    _generate_preamble,
+    _generate_whitening_sequence,
+    _validate_channel,
+    _validate_uint,
+    _validate_uncoded_phy,
+)
 
 
 @dataclass
@@ -29,6 +36,7 @@ class DemodulatorConfig:
     use_matched_filter: bool = True    # 使用高斯匹配滤波器
     freq_tracking: bool = False        # 频偏跟踪 (暂时禁用, 需要进一步调试)
     bt: float = 0.5                    # 高斯滤波器 BT 积
+    crc_init: int = 0x555555           # CRC 初始化值
 
 
 @dataclass
@@ -59,6 +67,19 @@ class BLEDemodulator:
         """更新内部参数"""
         config = self.config
 
+        config.phy_mode = _validate_uncoded_phy(config.phy_mode)
+        config.channel = _validate_channel(config.channel)
+        config.access_address = _validate_uint(
+            "access_address", config.access_address, 32
+        )
+        config.crc_init = _validate_uint("crc_init", config.crc_init, 24)
+        if not isinstance(config.whitening, bool):
+            raise TypeError("whitening must be a bool")
+        if not np.isfinite(config.sample_rate) or config.sample_rate <= 0:
+            raise ValueError("sample_rate must be a positive finite value")
+        if not np.isfinite(config.bt) or config.bt <= 0:
+            raise ValueError("bt must be a positive finite value")
+
         # 符号率
         if config.phy_mode == BLEPhyMode.LE_2M:
             self.symbol_rate = 2e6
@@ -66,7 +87,15 @@ class BLEDemodulator:
             self.symbol_rate = 1e6
 
         # 每符号采样数
-        self.samples_per_symbol = int(config.sample_rate / self.symbol_rate)
+        samples_per_symbol = config.sample_rate / self.symbol_rate
+        nearest_sps = int(round(samples_per_symbol))
+        if nearest_sps < 1 or not np.isclose(
+            samples_per_symbol, nearest_sps, rtol=0.0, atol=1e-9
+        ):
+            raise ValueError(
+                "sample_rate must be a positive integer multiple of symbol_rate"
+            )
+        self.samples_per_symbol = nearest_sps
 
         # 生成接入地址比特序列用于相关检测
         self._generate_access_address_pattern()
@@ -83,20 +112,7 @@ class BLEDemodulator:
         self.access_address_bits = np.array(bits, dtype=np.uint8)
 
         # 生成前导码 + 接入地址的匹配模式
-        # BLE 规范: 前导码取决于接入地址的 LSB
-        # - 如果 AA LSB = 0, 前导码 = 01010101 (0x55)
-        # - 如果 AA LSB = 1, 前导码 = 10101010 (0xAA)
-        aa_lsb = aa & 1
-        if self.config.phy_mode == BLEPhyMode.LE_2M:
-            if aa_lsb == 0:
-                preamble = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1], dtype=np.uint8)
-            else:
-                preamble = np.array([1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0], dtype=np.uint8)
-        else:
-            if aa_lsb == 0:
-                preamble = np.array([0, 1, 0, 1, 0, 1, 0, 1], dtype=np.uint8)
-            else:
-                preamble = np.array([1, 0, 1, 0, 1, 0, 1, 0], dtype=np.uint8)
+        preamble = _generate_preamble(aa, self.config.phy_mode)
 
         self.sync_pattern = np.concatenate([preamble, self.access_address_bits])
 
@@ -139,11 +155,9 @@ class BLEDemodulator:
         sps = self.samples_per_symbol
         config = self.config
 
-        # 前导码: 10101010 (LE 1M) 或 16 bits (LE 2M)
-        if config.phy_mode == BLEPhyMode.LE_2M:
-            preamble_bits = np.array([1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0])
-        else:
-            preamble_bits = np.array([1, 0, 1, 0, 1, 0, 1, 0])
+        preamble_bits = _generate_preamble(
+            config.access_address, config.phy_mode
+        )
 
         # 生成预期的瞬时频率模板
         # 对于 10101010, 频率应该在 +Δf 和 -Δf 之间交替
@@ -249,16 +263,7 @@ class BLEDemodulator:
 
     def _remove_whitening(self, bits: np.ndarray, channel: int) -> np.ndarray:
         """去白化"""
-        # 使用 BLEPacket 中的白化函数
-        lfsr = (channel & 0x3F) | 0x40
-
-        result = np.zeros(len(bits), dtype=np.uint8)
-        for i in range(len(bits)):
-            result[i] = bits[i] ^ (lfsr & 1)
-            feedback = ((lfsr >> 6) ^ (lfsr >> 3)) & 1
-            lfsr = ((lfsr << 1) | feedback) & 0x7F
-
-        return result
+        return bits ^ _generate_whitening_sequence(channel, len(bits))
 
     def _check_crc(self, data: bytes) -> Tuple[bool, int]:
         """
@@ -288,7 +293,7 @@ class BLEDemodulator:
 
         # 2. MSB-first 直接方法 CRC 计算
         poly = 0x00065B
-        crc = 0x555555  # 初始值
+        crc = self.config.crc_init
 
         for bit in bits:
             msb = (crc >> 23) & 1

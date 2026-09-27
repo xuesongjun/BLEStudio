@@ -1,0 +1,31 @@
+# Kingst RSSI debug port: 按 16 MHz word rate 使用虚拟采样边沿恢复 9-bit 数据
+
+input:
+  file: "../../data/logic_analyzer/captures/rssi.bin"
+
+capture:
+  profile: "rssi_resampled_sdr"
+  mode: "sdr"
+  sample_rate: 100.0e6
+  data_rate: 16.0e6
+  data_bits: [0, 1, 2, 3, 4, 5, 6, 7, 8]
+  bit_width: 9
+
+processing:
+  eye_align: true
+  search_range: 15
+  glitch_filter: true
+  glitch_threshold: 0.3
+  adaptive_filter: true
+  output_spike_filter: true
+
+output:
+  directory: "../../artifacts/logic_analyzer/rssi_resampled"
+  stem: "signals"
+  formats: [npz, mat, html, json]
+  max_plot_samples: 50000
+  show_plot: false
+  include_debug_data: false
+
+ble_rx:
+  enabled: false

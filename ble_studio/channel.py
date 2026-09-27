@@ -53,13 +53,52 @@ class ChannelConfig:
     dc_offset_q: float = 0.0        # Q 路 DC 偏移
 
     # 相位噪声
-    phase_noise_level: float = -100  # 相位噪声电平 (dBc/Hz @ 1MHz offset)
+    phase_noise_level: Optional[float] = None  # 显式启用相位噪声时设置
+    indoor_environment: str = 'office'  # 室内环境 profile
 
     def __post_init__(self):
+        try:
+            self.channel_type = ChannelType(self.channel_type)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Unsupported channel_type: {self.channel_type}") from exc
+
+        if not np.isfinite(self.sample_rate) or self.sample_rate <= 0:
+            raise ValueError("sample_rate must be a positive finite value")
+        if not np.isfinite(self.symbol_rate) or self.symbol_rate <= 0:
+            raise ValueError("symbol_rate must be a positive finite value")
+        if np.isnan(self.snr_db):
+            raise ValueError("snr_db must not be NaN")
+        if not np.isfinite(self.doppler_freq) or self.doppler_freq < 0:
+            raise ValueError("doppler_freq must be a non-negative finite value")
+        if not np.isfinite(self.k_factor) or self.k_factor < 0:
+            raise ValueError("k_factor must be a non-negative finite value")
+        if self.indoor_environment not in ('office', 'residential', 'industrial'):
+            raise ValueError(
+                "indoor_environment must be office, residential, or industrial"
+            )
+        if self.phase_noise_level is not None and not np.isfinite(
+            self.phase_noise_level
+        ):
+            raise ValueError("phase_noise_level must be finite or None")
+
         if self.path_delays is None:
             self.path_delays = [0.0]
+        else:
+            self.path_delays = list(self.path_delays)
         if self.path_gains is None:
             self.path_gains = [0.0]
+        else:
+            self.path_gains = list(self.path_gains)
+        if len(self.path_delays) != len(self.path_gains):
+            raise ValueError("path_delays and path_gains must have the same length")
+        if not self.path_delays:
+            raise ValueError("path_delays and path_gains must not be empty")
+        if not np.all(np.isfinite(self.path_delays)) or np.any(
+            np.asarray(self.path_delays) < 0
+        ):
+            raise ValueError("path_delays must be non-negative finite values")
+        if not np.all(np.isfinite(self.path_gains)):
+            raise ValueError("path_gains must contain finite values")
 
 
 class AWGNChannel:
@@ -256,6 +295,7 @@ class BLEIndoorChannel:
             environment: 环境类型 ('office', 'residential', 'industrial')
             sample_rate: 采样率 (Hz)
         """
+        self.environment = environment
         if environment == 'office':
             params = self.INDOOR_OFFICE
         elif environment == 'residential':
@@ -263,7 +303,9 @@ class BLEIndoorChannel:
         elif environment == 'industrial':
             params = self.INDOOR_INDUSTRIAL
         else:
-            params = self.INDOOR_OFFICE
+            raise ValueError(
+                "environment must be office, residential, or industrial"
+            )
 
         self.multipath = MultipathChannel(
             path_delays=params['path_delays'],
@@ -432,7 +474,11 @@ class BLEChannel:
         self.impairments = []
 
         # 1. 多径/衰落
-        if cfg.channel_type == ChannelType.RAYLEIGH:
+        if cfg.channel_type == ChannelType.FLAT_FADING:
+            self.impairments.append(
+                FlatFadingChannel(cfg.doppler_freq, cfg.sample_rate)
+            )
+        elif cfg.channel_type == ChannelType.RAYLEIGH:
             self.impairments.append(
                 RayleighChannel(cfg.doppler_freq, cfg.sample_rate)
             )
@@ -447,7 +493,7 @@ class BLEChannel:
             )
         elif cfg.channel_type == ChannelType.BLE_INDOOR:
             self.impairments.append(
-                BLEIndoorChannel('office', cfg.sample_rate)
+                BLEIndoorChannel(cfg.indoor_environment, cfg.sample_rate)
             )
 
         # 2. 频偏
@@ -475,7 +521,7 @@ class BLEChannel:
             )
 
         # 6. 相位噪声
-        if cfg.phase_noise_level > -120:
+        if cfg.phase_noise_level is not None:
             self.impairments.append(
                 PhaseNoise(cfg.phase_noise_level, sample_rate=cfg.sample_rate)
             )
@@ -550,6 +596,7 @@ def create_ble_indoor_channel(snr_db: float, environment: str = 'office') -> BLE
     """创建 BLE 室内信道"""
     config = ChannelConfig(
         channel_type=ChannelType.BLE_INDOOR,
-        snr_db=snr_db
+        snr_db=snr_db,
+        indoor_environment=environment,
     )
     return BLEChannel(config)

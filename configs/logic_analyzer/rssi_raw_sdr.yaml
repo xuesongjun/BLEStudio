@@ -1,0 +1,34 @@
+# Kingst RSSI debug port: 每个逻辑分析仪采样点直接恢复一个 RSSI word
+
+input:
+  file: "../../data/logic_analyzer/captures/rssi.bin"
+
+capture:
+  profile: "rssi_raw_sdr"
+  mode: "sdr"
+  sample_rate: 100.0e6
+  data_rate: 100.0e6
+  data_bits: [0, 1, 2, 3, 4, 5, 6, 7]
+  bit_width: 8
+  extra_signals:
+    agc_init: 8
+    rampup: 9
+    fire_timer: 10
+
+processing:
+  eye_align: false
+  search_range: 2
+  glitch_filter: false
+  adaptive_filter: false
+  output_spike_filter: false
+
+output:
+  directory: "../../artifacts/logic_analyzer/rssi_raw"
+  stem: "signals"
+  formats: [npz, mat, html, json]
+  max_plot_samples: 50000
+  show_plot: false
+  include_debug_data: false
+
+ble_rx:
+  enabled: false

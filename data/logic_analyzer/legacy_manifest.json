@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-07-20T16:20:00+08:00",
+  "source_root": "template_data",
+  "files": [
+    {"path": "template_data/adc_data.kvset", "size": 2655, "sha256": "75df0dd1ec89c2a59dbf93f53c9636bcfd8c3d20ec91408c5d2bf12ebd83e7bf", "tracked": false},
+    {"path": "template_data/bk.kvdat", "size": 519830, "sha256": "66ec8092fefa2eb3346c8c0a9b43f1d31cdfc3af5b623a61375d0eb62878cf19", "tracked": true},
+    {"path": "template_data/BLE_1M.bwv", "size": 1200656, "sha256": "a2b4a7bb66e40a8623655af5fc589413eb699b25cc1051d9ba83b55134b9ce52", "tracked": true},
+    {"path": "template_data/diag_0x3.kvset", "size": 2685, "sha256": "a3a136a13c4d32429bd6e716ccf49648d67c5dc76d0af9efa3a3da6809bde7a1", "tracked": false},
+    {"path": "template_data/raw_data.kvdat", "size": 519830, "sha256": "66ec8092fefa2eb3346c8c0a9b43f1d31cdfc3af5b623a61375d0eb62878cf19", "tracked": true},
+    {"path": "template_data/rfpll.kvset", "size": 3154, "sha256": "b36f1ef8ad48e4df03524eb9ac4ee8cdde58cd5583f3224be0342dedaefb32e3", "tracked": false},
+    {"path": "template_data/rssi_wave.html", "size": 647068074, "sha256": "401f9a25ceb0aa1cd04c141c4f66531df6e3b963beb2e263b93581c58c6dbade", "tracked": false},
+    {"path": "template_data/rssi_wave.mat", "size": 561392, "sha256": "4f693b72f6641fcd61943c33f2f62831e9d52e922ff6874c6133f76434803e91", "tracked": false},
+    {"path": "template_data/rssi_wave.mem", "size": 373992, "sha256": "4f680cdbc2d488158b7b4dda3e13fdab8f990defd6e65e94a6f61caef508e4ed", "tracked": false},
+    {"path": "template_data/rssi_wave.npy", "size": 10363653, "sha256": "4277450651f2bfd93c5bb416758f9876d8d350ebe30dbdd798dcb09302c968a3", "tracked": false},
+    {"path": "template_data/rssi_wave.txt", "size": 145089432, "sha256": "ae32d734ca92957ec3669857269da9d1d52e0fad629f76634d765df4542d2b65", "tracked": false},
+    {"path": "template_data/rssi_wave.vcd", "size": 10328084, "sha256": "6c4b8db92216c4973fae7ea7b72839c1aa9e03b1ebc7a6a939c9464b0be22eb7", "tracked": false},
+    {"path": "template_data/rssi_waveform.png", "size": 67413, "sha256": "402bcc6c63d92bfd97ace9d3ef25d249cc2202035e8cc18cacaa17cbb5db201a", "tracked": false},
+    {"path": "template_data/rssi.bin", "size": 20727050, "sha256": "22fba1e7f73a80cde46fc3b2c3182a018964d17e8e1051345d323a16277b6157", "tracked": true},
+    {"path": "template_data/rssi.kvset", "size": 2682, "sha256": "d5b1457caae20fe44438e0254965fb4cfaf86b1707686b992e812acb7a845403", "tracked": false},
+    {"path": "template_data/test_debug.html", "size": 14385101, "sha256": "2bd71652c14dba13554ce76b537b7dbe094c1ff35739dee3d9925b5e4963f076", "tracked": true},
+    {"path": "template_data/test_debug.vcd", "size": 30896211, "sha256": "114d83cbb98cfd3f33d8594e80267a0c5f374414bd14dec2dd0427b06ea8ac47", "tracked": true},
+    {"path": "template_data/test_iq_old.mat", "size": 157888, "sha256": "9c2e3af0419c2e9b2a16190e8b15eec8eaf47aeb9e1a32ad64e6409e1b051cb6", "tracked": true},
+    {"path": "template_data/test_iq_old.npy", "size": 52584, "sha256": "8c563593fe7296bb5d13a9e77d6dedee0c8b7a8bf19694474c13bc592b20e897", "tracked": true},
+    {"path": "template_data/test_iq_old.txt", "size": 367327, "sha256": "a3fb07cf3c616844b4956502dcd6672fe468c27bba01a958eab5f9b07ddd43ef", "tracked": true},
+    {"path": "template_data/test_iq.html", "size": 6243684, "sha256": "59a39f93bfb043bfe0db29a5b85f66dccf335b5ae968356133d7d2b77d2ce02f", "tracked": true},
+    {"path": "template_data/test_iq.mat", "size": 142624, "sha256": "d3415adf5ee852c5dda55baa17d32ac07187f30d2981e3f3340e5d2e5ac605b4", "tracked": true},
+    {"path": "template_data/test_iq.mem", "size": 71046, "sha256": "c211ded291f871b6d8730477e296a2bd747ab5ef0dfecdb68f63070854d2d194", "tracked": true},
+    {"path": "template_data/test_iq.npy", "size": 47492, "sha256": "df436bb66f7b29e63cacdff362a8618a356d835d116f48518f3a50af1c8628b5", "tracked": true},
+    {"path": "template_data/test_iq.txt", "size": 331685, "sha256": "bf9d5e735a4aa5514ee34670423e04a87934f8fe6aa2e28ea0e1b83690c84b35", "tracked": true},
+    {"path": "template_data/test.bin", "size": 950184, "sha256": "e7ef7463e448ae4b8bb5108757b8753a70c47acf392111c5eebc2a75d57f3fec", "tracked": true},
+    {"path": "template_data/test3.bin", "size": 5602284, "sha256": "1a6e014217705d1f0a5bb565c8e5c0f3d70c561951db23254128969fda566c3e", "tracked": false}
+  ],
+  "notes": [
+    "bk.kvdat and raw_data.kvdat are byte-identical.",
+    "Files already missing from the working tree are intentionally not restored.",
+    "Generated artifacts are moved losslessly before their old paths are removed."
+  ]
+}

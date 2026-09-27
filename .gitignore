@@ -59,6 +59,7 @@ venv.bak/
 .vscode/
 .idea/
 .claude/
+gui-sock-*
 *.swp
 *.swo
 *~
@@ -69,6 +70,16 @@ venv.bak/
 # Results and outputs
 results/
 output_*.html
+artifacts/*
+!artifacts/logic_analyzer/
+artifacts/logic_analyzer/*
+!artifacts/logic_analyzer/.gitkeep
+
+# Local logic analyzer captures
+data/logic_analyzer/captures/*
+!data/logic_analyzer/captures/.gitkeep
+data/logic_analyzer/quarantine/*
+!data/logic_analyzer/quarantine/.gitkeep
 
 # OS files
 .DS_Store
@@ -76,8 +87,4 @@ Thumbs.db
 
 # Local config
 *.local.yaml
-
-.html
-.npy
-.mat
 

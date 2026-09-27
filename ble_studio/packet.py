@@ -84,6 +84,70 @@ class LLControlOpcode(IntEnum):
     LL_PHY_UPDATE_IND = 0x18
 
 
+def _validate_uint(name: str, value: int, bits: int) -> int:
+    """校验无符号整数字段。"""
+    if not isinstance(value, (int, np.integer)):
+        raise TypeError(f"{name} must be an integer")
+    value = int(value)
+    if not 0 <= value < (1 << bits):
+        raise ValueError(f"{name} must be in range 0..{(1 << bits) - 1}")
+    return value
+
+
+def _validate_channel(channel: int) -> int:
+    channel = _validate_uint("channel", channel, 6)
+    if channel > 39:
+        raise ValueError(f"channel must be in range 0..39, got {channel}")
+    return channel
+
+
+def _validate_uncoded_phy(phy_mode: BLEPhyMode) -> BLEPhyMode:
+    """返回已支持的 uncoded PHY，Coded PHY 当前明确拒绝。"""
+    try:
+        phy_mode = BLEPhyMode(phy_mode)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Unsupported phy_mode: {phy_mode}") from exc
+
+    if phy_mode in (BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8):
+        raise NotImplementedError(
+            "LE Coded S=2/S=8 is not implemented; use LE_1M or LE_2M"
+        )
+    return phy_mode
+
+
+def _generate_preamble(access_address: int, phy_mode: BLEPhyMode) -> np.ndarray:
+    """按 Access Address LSB 生成 LE 1M/2M 前导码。"""
+    access_address = _validate_uint("access_address", access_address, 32)
+    phy_mode = _validate_uncoded_phy(phy_mode)
+    length = 16 if phy_mode == BLEPhyMode.LE_2M else 8
+    first_bit = access_address & 1
+    return np.fromiter(
+        (first_bit ^ (index & 1) for index in range(length)),
+        dtype=np.uint8,
+        count=length,
+    )
+
+
+def _generate_whitening_sequence(channel: int, length: int) -> np.ndarray:
+    """生成 Core 6.2 Vol 6 Part B 3.2 定义的 whitening 序列。"""
+    channel = _validate_channel(channel)
+    if not isinstance(length, (int, np.integer)):
+        raise TypeError("length must be an integer")
+    length = int(length)
+    if length < 0:
+        raise ValueError("length must be non-negative")
+
+    lfsr = channel | 0x40
+    sequence = np.zeros(length, dtype=np.uint8)
+    for index in range(length):
+        output_bit = lfsr & 1
+        sequence[index] = output_bit
+        lfsr >>= 1
+        if output_bit:
+            lfsr ^= 0x44
+    return sequence
+
+
 @dataclass
 class BLEPacketConfig:
     """BLE 数据包配置"""
@@ -128,10 +192,19 @@ class DataChannelPDU:
         Returns:
             2 字节头部
         """
+        try:
+            llid = DataPDUType(llid)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid llid: {llid}") from exc
+        nesn = _validate_uint("nesn", nesn, 1)
+        sn = _validate_uint("sn", sn, 1)
+        md = _validate_uint("md", md, 1)
+        length = _validate_uint("length", length, 8)
+
         # 第一字节: LLID(2) + NESN(1) + SN(1) + MD(1) + RFU(3)
-        byte0 = (llid & 0x03) | ((nesn & 0x01) << 2) | ((sn & 0x01) << 3) | ((md & 0x01) << 4)
+        byte0 = int(llid) | (nesn << 2) | (sn << 3) | (md << 4)
         # 第二字节: Length(8)
-        byte1 = length & 0xFF
+        byte1 = length
         return bytes([byte0, byte1])
 
     @staticmethod
@@ -158,6 +231,9 @@ class DataChannelPDU:
         Returns:
             完整 PDU (头部 + 负载)
         """
+        if not isinstance(payload, (bytes, bytearray)):
+            raise TypeError("payload must be bytes")
+        payload = bytes(payload)
         llid = DataPDUType.LL_DATA_START if is_start else DataPDUType.LL_DATA_CONT
         header = DataChannelPDU.create_header(llid, nesn, sn, md, len(payload))
         return header + payload
@@ -177,7 +253,13 @@ class DataChannelPDU:
         Returns:
             完整控制 PDU
         """
-        payload = bytes([opcode]) + ctrl_data
+        try:
+            opcode = LLControlOpcode(opcode)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid control opcode: {opcode}") from exc
+        if not isinstance(ctrl_data, (bytes, bytearray)):
+            raise TypeError("ctrl_data must be bytes")
+        payload = bytes([opcode]) + bytes(ctrl_data)
         header = DataChannelPDU.create_header(
             llid=DataPDUType.LL_CONTROL,
             nesn=nesn, sn=sn, md=0,
@@ -293,6 +375,29 @@ class BLEPacket:
 
     def __init__(self, config: Optional[BLEPacketConfig] = None):
         self.config = config or BLEPacketConfig()
+        self._validate_config()
+
+    def _validate_config(self) -> None:
+        """校验 Packet 构建所需的公共字段。"""
+        config = self.config
+        config.phy_mode = _validate_uncoded_phy(config.phy_mode)
+        config.channel = _validate_channel(config.channel)
+        try:
+            config.channel_type = BLEChannelType(config.channel_type)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid channel_type: {config.channel_type}"
+            ) from exc
+        config.access_address = _validate_uint(
+            "access_address", config.access_address, 32
+        )
+        config.crc_init = _validate_uint("crc_init", config.crc_init, 24)
+        config.pdu_type = _validate_uint("pdu_type", config.pdu_type, 4)
+        if not isinstance(config.payload, (bytes, bytearray)):
+            raise TypeError("payload must be bytes")
+        config.payload = bytes(config.payload)
+        if len(config.payload) > 255:
+            raise ValueError("payload length must be in range 0..255 bytes")
 
     def _bytes_to_bits(self, data: bytes) -> np.ndarray:
         """字节转比特 (LSB first)"""
@@ -352,17 +457,7 @@ class BLEPacket:
 
     def _get_whitening_sequence(self, channel: int, length: int) -> np.ndarray:
         """生成白化序列"""
-        # 初始化 LFSR (channel 号 + 1 作为种子)
-        lfsr = (channel & 0x3F) | 0x40
-
-        sequence = np.zeros(length, dtype=np.uint8)
-        for i in range(length):
-            sequence[i] = lfsr & 1
-            # x^7 + x^4 + 1
-            feedback = ((lfsr >> 6) ^ (lfsr >> 3)) & 1
-            lfsr = ((lfsr << 1) | feedback) & 0x7F
-
-        return sequence
+        return _generate_whitening_sequence(channel, length)
 
     def _apply_whitening(self, bits: np.ndarray, channel: int) -> np.ndarray:
         """应用白化"""
@@ -372,6 +467,10 @@ class BLEPacket:
     def generate_pdu(self) -> bytes:
         """生成 PDU (Protocol Data Unit)"""
         config = self.config
+
+        data_pdu = getattr(self, "_data_pdu", None)
+        if data_pdu is not None:
+            return data_pdu
 
         # 广播 PDU 头部 (2字节)
         # [PDU Type (4bit)] [RFU (1bit)] [ChSel (1bit)] [TxAdd (1bit)] [RxAdd (1bit)]
@@ -388,10 +487,7 @@ class BLEPacket:
         config = self.config
 
         # 1. 前导码
-        if config.phy_mode == BLEPhyMode.LE_2M:
-            preamble = self.PREAMBLE_2M.copy()
-        else:
-            preamble = self.PREAMBLE_1M.copy()
+        preamble = _generate_preamble(config.access_address, config.phy_mode)
 
         # 2. 接入地址 (32 bits, LSB first)
         access_addr_bits = self._int_to_bits(config.access_address, 32)
@@ -401,7 +497,7 @@ class BLEPacket:
         pdu_bits = self._bytes_to_bits(pdu)
 
         # 4. CRC (24 bits)
-        crc = self._calculate_crc(pdu)
+        crc = self._calculate_crc(pdu, config.crc_init)
         crc_bits = self._int_to_bits(crc, 24)
 
         # 5. 组合 PDU + CRC 并白化
@@ -444,8 +540,17 @@ def create_advertising_packet(
 ) -> BLEPacket:
     """创建广播数据包的便捷函数"""
 
+    if not isinstance(adv_address, (bytes, bytearray)):
+        raise TypeError("adv_address must be bytes")
+    if len(adv_address) != 6:
+        raise ValueError("adv_address must contain exactly 6 bytes")
+    if not isinstance(adv_data, (bytes, bytearray)):
+        raise TypeError("adv_data must be bytes")
+
     # 广播地址 (6 bytes) + 广播数据
-    payload = adv_address + adv_data
+    payload = bytes(adv_address) + bytes(adv_data)
+    if len(payload) > 255:
+        raise ValueError("advertising payload length must be at most 255 bytes")
 
     config = BLEPacketConfig(
         phy_mode=BLEPhyMode.LE_1M,
@@ -480,13 +585,26 @@ def create_data_packet(
     Returns:
         BLEPacket 对象
     """
+    if not isinstance(pdu, (bytes, bytearray)):
+        raise TypeError("pdu must be bytes")
+    pdu = bytes(pdu)
+    if len(pdu) < 2:
+        raise ValueError("data PDU must contain a 2-byte header")
+    if pdu[1] != len(pdu) - 2:
+        raise ValueError(
+            f"data PDU length field is {pdu[1]}, actual payload length is {len(pdu) - 2}"
+        )
+    channel = _validate_channel(channel)
+    if channel > 36:
+        raise ValueError("data channel must be in range 0..36")
+
     config = BLEPacketConfig(
         phy_mode=phy_mode,
         channel=channel,
         channel_type=BLEChannelType.DATA,
         access_address=access_address,
         pdu_type=0,  # 数据信道不使用此字段
-        payload=pdu[2:] if len(pdu) > 2 else b'',  # 跳过头部
+        payload=pdu[2:],
         crc_init=crc_init
     )
 
@@ -530,6 +648,25 @@ def create_connect_ind(
     Returns:
         BLEPacket 对象
     """
+    if not isinstance(init_address, (bytes, bytearray)) or len(init_address) != 6:
+        raise ValueError("init_address must contain exactly 6 bytes")
+    if not isinstance(adv_address, (bytes, bytearray)) or len(adv_address) != 6:
+        raise ValueError("adv_address must contain exactly 6 bytes")
+    init_address = bytes(init_address)
+    adv_address = bytes(adv_address)
+    access_address = _validate_uint("access_address", access_address, 32)
+    crc_init = _validate_uint("crc_init", crc_init, 24)
+    win_size = _validate_uint("win_size", win_size, 8)
+    win_offset = _validate_uint("win_offset", win_offset, 16)
+    interval = _validate_uint("interval", interval, 16)
+    latency = _validate_uint("latency", latency, 16)
+    timeout = _validate_uint("timeout", timeout, 16)
+    channel_map = _validate_uint("channel_map", channel_map, 37)
+    hop = _validate_uint("hop", hop, 5)
+    if not 5 <= hop <= 16:
+        raise ValueError("hop must be in range 5..16")
+    sca = _validate_uint("sca", sca, 3)
+
     # LLData 部分 (22 bytes)
     ll_data = bytes([
         # Access Address (4 bytes)
@@ -565,11 +702,9 @@ def create_connect_ind(
         (hop & 0x1F) | ((sca & 0x07) << 5)
     ])
 
-    payload = init_address + adv_address + ll_data
-
     return create_advertising_packet(
-        adv_address=b'',  # 不使用
-        adv_data=b'',
+        adv_address=init_address,
+        adv_data=adv_address + ll_data,
         channel=37,
         pdu_type=AdvertisingPDUType.CONNECT_IND
     )
@@ -732,6 +867,29 @@ class RFTestPacket(BLEPacket):
 
     def __init__(self, config: Optional[RFTestConfig] = None):
         self.test_config = config or RFTestConfig()
+        self.test_config.phy_mode = _validate_uncoded_phy(
+            self.test_config.phy_mode
+        )
+        self.test_config.channel = _validate_channel(self.test_config.channel)
+        self.test_config.access_address = _validate_uint(
+            "access_address", self.test_config.access_address, 32
+        )
+        self.test_config.crc_init = _validate_uint(
+            "crc_init", self.test_config.crc_init, 24
+        )
+        self.test_config.payload_length = _validate_uint(
+            "payload_length", self.test_config.payload_length, 8
+        )
+        try:
+            self.test_config.payload_type = RFTestPayloadType(
+                self.test_config.payload_type
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid RF test payload type: {self.test_config.payload_type}"
+            ) from exc
+        if not isinstance(self.test_config.whitening, bool):
+            raise TypeError("whitening must be a bool")
 
         # 生成测试负载
         payload = RFTestPayloadGenerator.generate_pattern(
@@ -758,10 +916,7 @@ class RFTestPacket(BLEPacket):
         config = self.config
 
         # 1. 前导码
-        if config.phy_mode == BLEPhyMode.LE_2M:
-            preamble = self.PREAMBLE_2M.copy()
-        else:
-            preamble = self.PREAMBLE_1M.copy()
+        preamble = _generate_preamble(config.access_address, config.phy_mode)
 
         # 2. 接入地址 (32 bits, LSB first)
         access_addr_bits = self._int_to_bits(config.access_address, 32)
@@ -771,7 +926,7 @@ class RFTestPacket(BLEPacket):
         pdu_bits = self._bytes_to_bits(pdu)
 
         # 4. CRC (24 bits)
-        crc = self._calculate_crc(pdu)
+        crc = self._calculate_crc(pdu, config.crc_init)
         crc_bits = self._int_to_bits(crc, 24)
 
         # 5. 组合 PDU + CRC (根据配置决定是否白化)
@@ -843,7 +998,8 @@ def create_test_packet(
     channel: int = 0,
     phy_mode: BLEPhyMode = BLEPhyMode.LE_1M,
     access_address: int = 0x71764129,
-    whitening: bool = False
+    whitening: bool = False,
+    crc_init: int = 0x555555,
 ) -> RFTestPacket:
     """
     创建 RF Test 测试数据包的便捷函数
@@ -855,6 +1011,7 @@ def create_test_packet(
         phy_mode: PHY 模式
         access_address: 接入地址 (默认 DTM 地址)
         whitening: 是否启用白化 (默认关闭)
+        crc_init: CRC 初始化值 (LE Test Packet 默认 0x555555)
 
     Returns:
         RFTestPacket 对象
@@ -878,6 +1035,7 @@ def create_test_packet(
         payload_type=payload_type,
         payload_length=payload_length,
         access_address=access_address,
+        crc_init=crc_init,
         whitening=whitening
     )
     return RFTestPacket(config)

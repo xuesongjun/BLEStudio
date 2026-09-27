@@ -268,7 +268,7 @@ def main():
         print("用法: python analyze_signal.py <file.mat|file.bwv> [symbol_rate_mhz]")
         print()
         print("示例:")
-        print("  python analyze_signal.py template_data/BLE_1M.bwv")
+        print("  python analyze_signal.py data/iq/BLE_1M.bwv")
         print("  python analyze_signal.py results/iq_rx.mat 2  # LE 2M")
         sys.exit(1)
 

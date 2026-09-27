@@ -1,0 +1,3 @@
+[2026-09-28 01:06] feat 建立 BLE 波形生成与逻辑分析仪处理基线
+- 改动文件：.gitignore, README.md, ble_studio/, configs/, data/, doc/, examples/, legacy/, reference/, template_data/, tests/, utils/, pyproject.toml, requirements.txt, process.txt
+- 改动说明：修正 BLE packet、modulator、demodulator、channel 与 performance 的协议基线，增加规范向量及理想 TX/RX loopback 回归；整理逻辑分析仪解析功能为 ble_studio.logic_analyzer 子模块并迁移配置、样例、文档与旧脚本；纳入 MATLAB golden reference，并为 Python 波形输出增加包含 PHY、采样率、payload、长度和方向的描述性命名及 strict pretty JSON sidecar，记录协议、采样、信道、量化和 SHA-256 信息；增加 96 MHz LE1M PRBS9 37-byte 示例及完整测试。

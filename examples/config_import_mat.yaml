@@ -28,7 +28,7 @@ channel:
 io:
   input:
     enabled: true
-    file: "C:/workspace/BLEStudio/results/BLE_1M.bwv"
+    file: "data/iq/BLE_1M.bwv"
     file_type: "mat"
     mat_complex_var: "wave"  # 复数变量名
   output:

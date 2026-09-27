@@ -1,0 +1,39 @@
+# Kingst ADC debug port: 10-bit DDR IQ
+
+input:
+  file: "../../data/logic_analyzer/captures/test.bin"
+
+capture:
+  profile: "iq_ddr"
+  mode: "ddr"
+  sample_rate: 500.0e6
+  data_rate: 32.0e6
+  data_bits: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  bit_width: 10
+  clock_channel: 10
+  rising_edge_data: "Q"
+  falling_edge_data: "I"
+
+processing:
+  eye_align: true
+  search_range: 15
+  glitch_filter: true
+  glitch_threshold: 0.2
+  adaptive_filter: false
+  output_spike_filter: true
+
+output:
+  directory: "../../artifacts/logic_analyzer/adc_ddr"
+  stem: "waveform"
+  formats: [mat, txt, mem, html, json]
+  max_plot_samples: 50000
+  show_plot: false
+  include_debug_data: false
+
+ble_rx:
+  enabled: true
+  phy_mode: "LE_1M"
+  access_address: 0x71764129
+  channel: 0
+  whitening: false
+  target_samples_per_symbol: 16

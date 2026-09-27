@@ -25,7 +25,7 @@ graph LR
     IN["信道入口"]
     CH["信道模型<br/>(AWGN/衰落)"]
     OUT["信道出口"]
-    IQOUT["IQ 导出<br/>(txt/mat)"]
+    IQOUT["IQ 导出<br/>(txt/mat/mem/json)"]
     RX["BLE RX<br/>(解调器)"]
 
     TX --> IN
@@ -47,20 +47,21 @@ graph LR
 支持导入外部 IQ 数据替代 TX 输出，用于测试实际硬件信号：
 
 ```yaml
-channel_input:
-  enabled: true                    # 启用导入
-  file: "captured_signal.txt"      # 导入文件路径
-  file_type: "auto"                # auto/txt/mat
-  # TXT 文件配置
-  bit_width: 12                    # 量化位宽
-  frac_bits: 0                     # Q 格式小数位
-  iq_format: "two_column"          # two_column/interleaved/separate
-  number_format: "signed"          # signed/unsigned/hex/float
-  skip_lines: 0                    # 跳过头部行数
-  # MAT 文件配置
-  mat_i_var: "I"                   # I 数据变量名
-  mat_q_var: "Q"                   # Q 数据变量名
-  mat_complex_var: ""              # 复数变量名 (可选)
+io:
+  input:
+    enabled: true                    # 启用导入
+    file: "captured_signal.txt"      # 导入文件路径
+    file_type: "auto"                # auto/txt/mat
+    # TXT 文件配置
+    bit_width: 12                    # 量化位宽
+    frac_bits: 0                     # Q 格式小数位
+    iq_format: "two_column"          # two_column/interleaved/separate
+    number_format: "signed"          # signed/unsigned/hex/float
+    skip_lines: 0                    # 跳过头部行数
+    # MAT 文件配置
+    mat_i_var: "I"                   # I 数据变量名
+    mat_q_var: "Q"                   # Q 数据变量名
+    mat_complex_var: ""              # 复数变量名 (可选)
 ```
 
 ### 信道出口配置
@@ -68,20 +69,41 @@ channel_input:
 支持将信道输出导出为多种格式：
 
 ```yaml
-channel_output:
-  enabled: true                    # 启用导出
-  bit_width: 12                    # 量化位宽
-  frac_bits: 0                     # Q 格式小数位
-  iq_format: "two_column"          # two_column/interleaved/separate
-  number_format: "signed"          # signed/unsigned/hex
-  add_header: true                 # 添加文件头注释
-  # 导出格式选择
-  export_txt: true                 # 导出 TXT 文件
-  export_mat: true                 # 导出 MATLAB .mat 文件
-  export_verilog: false            # 导出 Verilog $readmemh 格式
-  export_separate: false           # 导出分离的 I/Q 文件
-  export_tx: true                  # 同时导出 TX 理想信号
+io:
+  output:
+    enabled: true                    # 启用导出及 JSON sidecar
+    bit_width: 12                    # 量化位宽
+    frac_bits: 0                     # 0 + scale_to_full 使用实际动态缩放因子
+    iq_format: "two_column"          # two_column/interleaved/separate
+    number_format: "signed"          # signed/unsigned/hex
+    scale_to_full: true
+    add_header: true                 # 添加文件头注释
+    # 导出格式选择
+    export_txt: true                 # 导出 TXT 文件
+    export_mat: true                 # 导出 MATLAB .mat 文件
+    export_verilog: false            # 导出 Verilog $readmemh 格式
+    export_tx: true                  # 同时导出 TX 理想信号
 ```
+
+BLE waveform 流程始终为每个实际导出的 TX/RX 生成 pretty JSON。generated packet 的
+文件名格式为：
+
+```text
+<PHY>_<sample-rate>Msps_<payload>_<length>B_<TX|RX>.<extension>
+```
+
+例如 LE 1M、96 MHz、PRBS9、37 bytes 会生成：
+
+```text
+LE1M_96Msps_PRBS9_37B_TX.txt
+LE1M_96Msps_PRBS9_37B_TX.mat
+LE1M_96Msps_PRBS9_37B_TX.mem
+LE1M_96Msps_PRBS9_37B_TX.json
+```
+
+JSON 记录 packet/PDU/CRC、实际采样率、SPS、channel、量化规则和关联文件 SHA-256。
+外部 IQ 的 RX 使用输入文件 stem 和实际采样率命名，并在 JSON 中区分真实 source 与
+receiver expectation。
 
 ### 使用场景
 
@@ -179,6 +201,9 @@ python examples/demo.py examples/config_low_snr.yaml
 
 # 理想信道 (查看 TX 理想波形)
 python examples/demo.py examples/config_ideal.yaml
+
+# LE 1M / 96 MHz / PRBS9 / 37 bytes Verilog 波形
+python examples/demo.py examples/config_rftest_1m_prbs9_96m.yaml
 ```
 
 ### 输出文件
@@ -190,8 +215,9 @@ python examples/demo.py examples/config_ideal.yaml
 | `index.html` | 首页 (RX 端图表 + 解调结果) |
 | `charts.html` | TX/RX 对比图表页面 |
 | `report.html` | 详细仿真报告 |
-| `iq_tx_ideal.txt/mat` | TX 理想 IQ 数据 |
-| `iq_channel_out.txt/mat` | 信道输出 IQ 数据 |
+| `<PHY>_<Fs>_<payload>_<length>_TX.txt/mat/mem` | TX 理想 IQ 数据 |
+| `<PHY>_<Fs>_<payload>_<length>_RX.txt/mat/mem` | 信道输出 IQ 数据 |
+| 与波形同 basename 的 `.json` | BLE 配置、量化参数及文件 SHA-256 |
 
 
 ### 生成 BLE 广播数据包
@@ -245,9 +271,17 @@ modulator = BLEModulator(config)
 # 调制
 iq_signal = modulator.modulate(bits)
 
-# 添加信道损伤
-noisy_signal = modulator.add_noise(iq_signal, snr_db=15)
-signal_with_cfo = modulator.add_frequency_offset(noisy_signal, freq_offset=50e3)
+# 添加信道损伤；snr_db 字段当前表示 Eb/N0
+from ble_studio import BLEChannel, ChannelConfig, ChannelType
+
+channel = BLEChannel(ChannelConfig(
+    channel_type=ChannelType.AWGN,
+    sample_rate=8e6,
+    symbol_rate=modulator.symbol_rate,
+    snr_db=15,
+    frequency_offset=50e3,
+))
+rx_signal = channel.apply(iq_signal)
 ```
 
 ### GFSK 解调
@@ -261,7 +295,8 @@ config = DemodulatorConfig(
     phy_mode=BLEPhyMode.LE_1M,
     sample_rate=8e6,
     access_address=0x8E89BED6,
-    channel=37
+    channel=37,
+    crc_init=0x555555,
 )
 
 demodulator = BLEDemodulator(config)
@@ -502,7 +537,8 @@ signal = importer.import_verilog_mem('input/iq.mem')
 ```
 // BLE Studio IQ Data Export
 // Bit Width: 12
-// Q Format: Q12.0
+// Scale Factor: 2048
+// Rounding: ties_away_from_zero
 // Samples: 1856
 //
 1933 226
@@ -567,13 +603,15 @@ rx_signal = channel.apply(tx_signal)
 
 ### BER/PER 性能测试
 
+以下 API 中为兼容现有调用保留参数名 `snr_db`，其实际语义是 Eb/N0。
+
 ```python
 from ble_studio import (
     quick_ber_test, quick_snr_sweep, plot_ber_curve,
     BLEPerformanceTester, TestConfig, BLEPhyMode
 )
 
-# 快速 BER 测试
+# 快速 BER 测试，10 dB 表示 Eb/N0
 result = quick_ber_test(snr_db=10, num_packets=100)
 print(f"BER: {result.ber:.2e}, PER: {result.per:.2%}")
 
@@ -606,6 +644,42 @@ report = tester.run_snr_sweep()
 sensitivity = tester.run_sensitivity_test(target_per=0.308)
 print(f"灵敏度: {sensitivity:.2f} dB")
 ```
+
+### 逻辑分析仪采集数据恢复
+
+逻辑分析仪工具用于把 Kingst 16-channel BIN 恢复为 DDR IQ 或 SDR
+并行数据，并可选调用 BLE Studio RX 验证同步和 CRC。正式入口：
+
+```bash
+# 查看命令
+python -m ble_studio.logic_analyzer --help
+
+# 10-bit DDR ADC/IQ 恢复，并执行可选 BLE RX 验证
+python -m ble_studio.logic_analyzer convert configs/logic_analyzer/adc_ddr.yaml
+
+# 原始 RSSI + AGC/rampup/fire_timer
+python -m ble_studio.logic_analyzer convert configs/logic_analyzer/rssi_raw_sdr.yaml
+
+# 只输出采样、deskew、Fs 和 RX 诊断，不写波形文件
+python -m ble_studio.logic_analyzer diagnose configs/logic_analyzer/adc_ddr.yaml
+
+# 生成可编辑配置
+python -m ble_studio.logic_analyzer config --profile adc-ddr my_adc.yaml
+```
+
+数据分工：
+
+- `data/logic_analyzer/captures/`：本地完整 capture，Git 忽略。
+- `data/logic_analyzer/fixtures/`：小型可复现样本。
+- `data/logic_analyzer/profiles/`：Kingst 硬件通道配置。
+- `artifacts/logic_analyzer/`：MAT/TXT/NPZ/MEM/HTML/VCD 等可再生输出。
+
+DDR MAT 默认包含 normalized complex `iq`、signed/raw I/Q、采样率和采样位置，
+可通过 `mat_complex_var: iq` 直接交给 BLE Studio。格式和算法说明见
+`doc/logic_analyzer/README.md`。
+
+原 `utils/logic_analyzer_bin2wave.py`、`bin_to_vcd.py`、`rssi_parser.py`
+暂时保留兼容 wrapper，新开发统一使用 `ble-la` 或 module CLI。
 
 ### 小工具 (utils/)
 
@@ -689,7 +763,17 @@ BLEStudio/
 │   ├── performance.py    # BER/PER 性能测试
 │   ├── visualizer.py     # Plotly 可视化 (含 RF 测试指标)
 │   ├── report.py         # HTML 报告生成
-│   └── iq_io.py          # IQ 数据导入导出 (Verilog/MATLAB)
+│   ├── iq_io.py          # IQ 数据导入导出 (Verilog/MATLAB)
+│   └── logic_analyzer/   # Kingst BIN 恢复、导出和 RX 验证
+├── configs/
+│   └── logic_analyzer/   # DDR IQ、原始 RSSI、重采样 RSSI profile
+├── data/
+│   ├── iq/               # MATLAB/iTest 参考 IQ
+│   └── logic_analyzer/   # fixture、capture 和 Kingst profile
+├── artifacts/
+│   └── logic_analyzer/   # 可再生输出，Git 忽略
+├── doc/
+│   └── logic_analyzer/   # 处理链、采样规则和格式契约
 ├── examples/
 │   ├── demo.py                    # 演示程序
 │   ├── config.yaml                # 默认配置文件
@@ -698,7 +782,7 @@ BLEStudio/
 │   ├── config_rftest_2m_prbs15.yaml  # RF Test 2M PRBS15 配置
 │   ├── config_rftest_pattern.yaml # RF Test 固定模式配置
 │   ├── config_low_snr.yaml        # 低 SNR 灵敏度测试配置
-│   ├── config_channel_scan.yaml   # 全信道扫描配置
+│   ├── config_channel_scan.yaml   # 手动切换测试信道的示例配置
 │   └── config_ideal.yaml          # 理想信道测试配置
 ├── utils/                # 小工具/脚本目录
 │   ├── snr_sweep.py      # SNR 扫描测试 (不同信噪比解调性能)
@@ -706,6 +790,11 @@ BLEStudio/
 │   ├── rf_metrics_test.py    # RF 测试指标验证 (ΔF1/ΔF2)
 │   ├── modulator_analysis.py # 调制器分析 (频率脉冲/相位/IQ)
 │   └── visualizer_rf_test.py # Visualizer RF 指标测试
+├── tests/
+│   ├── core/             # Packet、PHY、Channel、Performance 回归
+│   └── logic_analyzer/   # 合成输入和真实小型 fixture 回归
+├── legacy/
+│   └── logic_analyzer/   # 已停止维护的旧实现和实验脚本
 ├── results/              # 输出目录 (HTML 报告, IQ 数据)
 ├── pyproject.toml        # 项目配置
 ├── requirements.txt      # 依赖列表
@@ -720,6 +809,9 @@ BLEStudio/
 |------|--------|----------|
 | LE 1M | 1 Msps | GFSK |
 | LE 2M | 2 Msps | GFSK |
+
+`LE_CODED_S2` 和 `LE_CODED_S8` 目前尚未实现 FEC、pattern mapping 和
+Coded PHY packet format；相关入口会明确抛出 `NotImplementedError`。
 
 ### 数据包格式
 
@@ -743,6 +835,7 @@ BLEStudio/
 - NumPy >= 1.20.0
 - SciPy >= 1.7.0
 - Plotly >= 5.10.0
+- PyYAML == 6.0.3
 
 ## 可视化图表类型
 
@@ -838,7 +931,7 @@ viz = BLEVisualizer(theme='default')
 ```yaml
 channel:
   type: "awgn"           # 信道类型 (见下表)
-  snr_db: 20             # 信噪比 (dB)
+  ebn0_db: 20            # Eb/N0 (dB)，兼容旧字段 snr_db
   freq_offset: 0         # 载波频偏 (Hz)
   doppler_freq: 10.0     # 多普勒频率 (Hz) - 用于 rayleigh/rician
   k_factor: 4.0          # 莱斯 K 因子 - 仅用于 rician

@@ -1,8 +1,8 @@
-# BLE Studio - 导入 .mat/.bwv 文件仿真
+# BLE Studio - 导入逻辑分析仪恢复的 canonical MAT
 #
-# 使用: python examples/demo.py examples/config_import_mat.yaml
+# 使用: python examples/demo.py examples/config_import_hex.yaml
 #
-# 数据流: 外部 .bwv → [信道入口] → (bypass) → RX 解调
+# 数据流: Kingst BIN 恢复结果 → [信道入口] → (bypass) → RX 解调
 
 # 公共参数
 common:
@@ -12,7 +12,7 @@ common:
 # 发送端 (需与文件中的信号参数匹配)
 tx:
   phy_mode: "LE_1M"
-  sample_rate: 120.0e6  # .bwv 文件采样率
+  sample_rate: 16.0e6  # 实际值会优先从 MAT 的 fs 读取
   modulation_index: 0.5
   bt: 0.5
   payload_type: "PRBS9"
@@ -28,10 +28,9 @@ channel:
 io:
   input:
     enabled: true
-    file: "C:/workspace/BLEStudio/template_data/test_iq_old.mat"
+    file: "data/logic_analyzer/fixtures/adc_ddr_iq.mat"
     file_type: "mat"
-    mat_i_var: "I_signed"
-    mat_q_var: "Q_signed"
+    mat_complex_var: "iq"
   output:
     enabled: false
 

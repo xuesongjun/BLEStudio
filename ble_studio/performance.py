@@ -12,6 +12,7 @@ import time
 from .packet import BLEPacket, BLEPacketConfig, BLEPhyMode, create_advertising_packet
 from .modulator import BLEModulator, ModulatorConfig
 from .demodulator import BLEDemodulator, DemodulatorConfig
+from .channel import BLEChannel, ChannelConfig, ChannelType
 
 
 class TestMode(Enum):
@@ -130,24 +131,23 @@ class BLEPerformanceTester:
     def _apply_channel(self, signal: np.ndarray, snr_db: float) -> np.ndarray:
         """应用信道效应"""
         config = self.config
-
-        # 添加 AWGN 噪声
-        output = self.modulator.add_noise(signal, snr_db)
-
-        # 添加频偏
-        if config.frequency_offset != 0:
-            output = self.modulator.add_frequency_offset(output, config.frequency_offset)
-
-        # 添加定时偏移
-        if config.timing_offset != 0:
-            output = self.modulator.add_timing_offset(output, config.timing_offset)
-
-        return output
+        channel = BLEChannel(ChannelConfig(
+            channel_type=ChannelType.AWGN,
+            sample_rate=config.sample_rate,
+            symbol_rate=self.modulator.symbol_rate,
+            snr_db=snr_db,
+            frequency_offset=config.frequency_offset,
+            timing_offset=config.timing_offset,
+        ))
+        return channel.apply(signal)
 
     def _count_bit_errors(self, tx_bits: np.ndarray, rx_bits: np.ndarray) -> int:
         """计算比特错误数"""
+        tx_bits = np.asarray(tx_bits)
+        rx_bits = np.asarray(rx_bits)
         min_len = min(len(tx_bits), len(rx_bits))
-        return int(np.sum(tx_bits[:min_len] != rx_bits[:min_len]))
+        mismatches = int(np.sum(tx_bits[:min_len] != rx_bits[:min_len]))
+        return mismatches + abs(len(tx_bits) - len(rx_bits))
 
     def run_ber_test(self, snr_db: float, num_packets: int = None,
                      progress_callback: Callable = None) -> TestResult:

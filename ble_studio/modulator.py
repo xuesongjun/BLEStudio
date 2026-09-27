@@ -7,7 +7,7 @@ import numpy as np
 from typing import Optional
 from dataclasses import dataclass
 from scipy.special import erf
-from .packet import BLEPhyMode
+from .packet import BLEPhyMode, _validate_uncoded_phy
 
 
 @dataclass
@@ -32,6 +32,18 @@ class BLEModulator:
         """更新内部参数"""
         config = self.config
 
+        config.phy_mode = _validate_uncoded_phy(config.phy_mode)
+        if not np.isfinite(config.sample_rate) or config.sample_rate <= 0:
+            raise ValueError("sample_rate must be a positive finite value")
+        if not np.isfinite(config.modulation_index) or config.modulation_index <= 0:
+            raise ValueError("modulation_index must be a positive finite value")
+        if not np.isfinite(config.bt) or config.bt <= 0:
+            raise ValueError("bt must be a positive finite value")
+        if not np.isfinite(config.center_freq):
+            raise ValueError("center_freq must be finite")
+        if not isinstance(config.pulse_length, (int, np.integer)) or config.pulse_length < 1:
+            raise ValueError("pulse_length must be a positive integer")
+
         # 符号率
         if config.phy_mode == BLEPhyMode.LE_2M:
             self.symbol_rate = 2e6
@@ -39,7 +51,15 @@ class BLEModulator:
             self.symbol_rate = 1e6
 
         # 每符号采样数
-        self.samples_per_symbol = int(config.sample_rate / self.symbol_rate)
+        samples_per_symbol = config.sample_rate / self.symbol_rate
+        nearest_sps = int(round(samples_per_symbol))
+        if nearest_sps < 1 or not np.isclose(
+            samples_per_symbol, nearest_sps, rtol=0.0, atol=1e-9
+        ):
+            raise ValueError(
+                "sample_rate must be a positive integer multiple of symbol_rate"
+            )
+        self.samples_per_symbol = nearest_sps
 
         # 频偏 (用于兼容性，实际调制使用 modulation_index)
         self.freq_deviation = config.modulation_index * self.symbol_rate / 2
@@ -125,6 +145,12 @@ class BLEModulator:
         Returns:
             IQ 复基带信号
         """
+        bits = np.asarray(bits)
+        if bits.ndim != 1:
+            raise ValueError("bits must be a one-dimensional array")
+        if not np.all((bits == 0) | (bits == 1)):
+            raise ValueError("bits must contain only 0 and 1")
+
         config = self.config
         N = self.samples_per_symbol
         h = config.modulation_index
