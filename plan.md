@@ -1063,3 +1063,201 @@ files
   最大复数误差为 `2.854e-14`。
 - 新生成的正式示例位于 `artifacts/waveforms/LE1M_96Msps_PRBS9_37B`。
 - 定向 metadata/exporter tests 与全量 regression 均通过；最终结果为 `93 passed`。
+
+---
+
+# BLEStudio 仓库目录清理计划
+
+状态：第一波清理已完成，等待用户检查
+
+日期：2026-09-27
+
+## 1. 目标
+
+在不改变 BLEStudio 正式功能、public CLI、golden regression 和原始 capture 的前提下，
+删除全部可再生输出、历史残留和一次性脚本，使根目录与当前架构一致。用户在执行阶段
+进一步确认：正式 Verilog waveform 也作为可再生 artifact 删除。
+
+预计释放约 `880 MiB` 工作区空间；不执行 Git history rewrite。
+
+## 2. 第一部分：本地 ignored 产物清理
+
+执行前解析绝对路径并确认目标仍位于仓库根目录内，然后删除以下生成物：
+
+```text
+artifacts/ 下除 tracked .gitkeep 外的全部生成物
+results/ 全部生成物
+.pytest_cache/
+ble_studio/__pycache__/
+ble_studio/logic_analyzer/__pycache__/
+examples/__pycache__/
+tests/core/__pycache__/
+tests/logic_analyzer/__pycache__/
+utils/__pycache__/
+template_data/
+gui-sock-*
+```
+
+清理时保留：
+
+```text
+artifacts/logic_analyzer/.gitkeep
+data/logic_analyzer/captures/
+data/logic_analyzer/quarantine/
+venv/
+.claude/
+```
+
+## 3. 第二部分：tracked 文件整理
+
+删除：
+
+```text
+results_logic_analyzer/
+save_log.md
+ble_studio/modulator_v0.py
+utils/get_bwv_info.py
+utils/read_mat.py
+utils/test.py
+utils/test_rf_metrics.py
+legacy/logic_analyzer/
+```
+
+同步修改：
+
+- `.gitignore`：增加 `results_logic_analyzer/`，避免旧工具再次把生成结果放回仓库。
+- `README.md`：从目录树中移除 `legacy/logic_analyzer/`。
+- `doc/logic_analyzer_data_processing.md`：将旧目录说明改为通过 Git history 查看历史实现。
+- `research.md`、`plan.md`：保留本次审计依据、执行状态和最终结果。
+
+不删除 deprecated logic-analyzer wrappers，因此旧命令路径保持兼容。
+
+## 4. 明确不做
+
+- 不删除或修改 `data/logic_analyzer/captures/`、`quarantine/` 中的原始数据。
+- 不删除 `reference/`、规范 PDF、Kingst profile 或正式 fixture。
+- 不删除 `venv/` 或 `.claude/`；它们分别是当前测试环境和本机工具配置。
+- 不合并或改名示例配置，不修改 Packet、Modulator、RX、Channel 或 exporter 行为。
+- 不执行 `git gc`、history rewrite、force push 或其他历史破坏操作。
+
+## 5. 兼容性影响
+
+- Python package、`ble-la`、现有兼容 wrapper 和测试 fixture 不受影响。
+- `ble_studio.modulator_v0` 从未被导出或引用，删除不改变 public API。
+- `legacy/logic_analyzer/` 旧源码不再存在于最新 checkout，但仍可通过 Git history 获取。
+- `results_logic_analyzer/` 的旧静态报告和 IQ 文件将从最新版本删除；正式输出目录继续是
+  `artifacts/logic_analyzer/`。
+
+## 6. 验证步骤
+
+1. 删除前后运行 `git status --short`，确认没有工作区外目标或意外文件。
+2. 使用 `rg` 检查删除路径、模块名和 legacy 文档引用已经清理。
+3. 运行完整测试：
+
+   ```powershell
+   $env:PYTHONDONTWRITEBYTECODE='1'
+   .\venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
+   ```
+
+4. 运行 `python -m ble_studio.logic_analyzer --help` 验证正式 CLI。
+5. 确认 `artifacts/` 只保留 tracked placeholder，`results/` 和其他生成物已清理。
+6. 执行 `git diff --check`、`git diff --stat` 和完整 `git diff` 审核。
+7. 汇报删除文件、释放空间、测试结果和保留项；未获得额外指令前不 push。
+
+## 7. 执行状态
+
+- 用户已回复 `GO`，并追加确认删除所有可再生输出。
+- 删除和验证后保持未提交、未 push 状态，等待用户检查。
+
+## 8. 第一波执行结果
+
+- 已删除 `results/`、`results_logic_analyzer/`、可访问的 `artifacts/` 生成物、旧实现、
+  conversation log 和四个一次性脚本。
+- 已从当前工作树移除 `legacy/logic_analyzer/` tracked 内容，并保留正式兼容 wrapper。
+- `.gitignore`、README 目录树和逻辑分析仪入口文档已同步更新。
+- 完整 regression：`93 passed in 18.40s`。
+- `python -m ble_studio.logic_analyzer --help` 正常。
+- active source、test、config 和文档中没有残留已删除路径引用。
+- 以下 ignored 目录由此前受限测试进程创建，Windows ACL 拒绝当前用户读取或删除；
+  `takeown` 和 `icacls /reset` 仍无法遍历其子目录：
+
+  ```text
+  .pytest_cache/
+  artifacts/logic_analyzer/legacy/
+  artifacts/waveforms/
+  legacy/logic_analyzer/scripts/__pycache__/
+  ```
+
+  这些目录不属于 Git tracked source。需在具备相应 Windows 权限的终端中单独清理。
+
+---
+
+# README 使用教程重写计划
+
+状态：已完成（2026-09-28）
+
+日期：2026-09-28
+
+## 1. 目标
+
+将 README 从混合型 API 手册收敛为简洁、可复制执行的 BLEStudio 入门教程，修复首次运行
+时因 Python 环境不一致导致的 `ModuleNotFoundError`，并删除与当前实现不一致的配置说明。
+
+目标长度约 200--250 行；详细算法和 API 说明继续保留在源码、`doc/` 和示例配置中。
+
+## 2. README 新结构
+
+1. 项目定位和数据流：BLE TX/外部 IQ → Channel → BLE RX → 报告/波形。
+2. 主要功能：LE1M/LE2M、Packet/DTM、GFSK、信道、波形导出、逻辑分析仪。
+3. Windows PowerShell 安装：创建 venv，使用同一个 venv Python 安装和运行。
+4. Linux/macOS 安装：对应的 `python3`/`venv` 命令。
+5. 第一次运行：默认配置和报告位置。
+6. 96 MHz LE1M PRBS9 37-byte 波形：命令、输出目录和 TXT/MAT/MEM/JSON 语义。
+7. 配置文件：只展示当前有效的 `common`/`tx`/`channel`/`io`/`output` 结构。
+8. 逻辑分析仪：`ble-la`/module CLI 命令、capture 前提和专题文档链接。
+9. 当前支持范围和限制：LE Coded 未实现、integer SPS、Packet interval 未实现。
+10. 测试、项目目录和参考文档。
+
+## 3. 具体修改
+
+- 将所有首次运行命令改为：
+
+  ```powershell
+  .\venv\Scripts\python.exe -m pip install -e .
+  .\venv\Scripts\python.exe examples\demo.py
+  ```
+
+- 增加 `ModuleNotFoundError` 的排查提示，说明安装和运行必须使用同一解释器。
+- 删除旧的顶层 `mode`/`rf_test` YAML 片段，改为当前配置 schema。
+- 更正默认 `ebn0_db`、真实 bypass、输出目录和导出开关说明。
+- 保留 96 MHz 配置示例，明确输出目录在 `artifacts/` 下且该目录是可再生输出。
+- 删除重复的 API 代码、可视化图表清单、长日志和未验证的宽泛能力声明。
+- 保留链接：`doc/logic_analyzer/`、`doc/ebn0_vs_snr.md`、`doc/gfsk_phase_pulse.md`、
+  `reference/`。
+
+## 4. 验证
+
+重写后执行：
+
+```powershell
+.\venv\Scripts\python.exe -c "import ble_studio, examples.demo"
+.\venv\Scripts\python.exe -m ble_studio.logic_analyzer --help
+.\venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
+```
+
+并使用 `rg` 检查 README 中不再出现裸 `python examples/demo.py`、旧 YAML schema、
+已删除 `results_logic_analyzer`/`legacy/logic_analyzer` 路径和不存在的 Packet interval
+实现声明。
+
+## 5. 执行结果
+
+- README 从约 769 行压缩为 207 行，聚焦安装、首次运行、96 MHz 波形、配置、逻辑分析仪
+  和测试入口。
+- 所有 Windows 示例命令绑定到 `venv\\Scripts\\python.exe`，并增加 `ModuleNotFoundError`
+  和 `scipy` 排查说明。
+- 删除旧的 `mode`/`rf_test` 配置示例，改为当前 `common`/`tx`/`channel`/`io`/`output`
+  schema。
+- 明确输出目录由 `output.dir` 决定、96 MHz 波形目录、JSON sidecar 内容，以及当前
+  Packet interval 尚未实现的事实。
+- README 链接检查通过；`ble_studio` 导入、logic analyzer CLI help 和完整测试均通过。
+- 完整测试结果：`93 passed in 9.93s`。

@@ -5,3 +5,11 @@
 [2026-09-28 01:23] docs 发布开发计划与调研记录
 - 改动文件：plan.md, research.md, process.txt
 - 改动说明：将 BLE 核心、逻辑分析仪、Packet interval 和波形 JSON sidecar 的开发计划及调研依据纳入版本管理；依据当前代码修正 plan.md 中 Packet interval 的完成状态，明确 Python 配置功能仍待 TDD 实现。
+
+[2026-09-28 09:27] docs 重写 README 使用教程
+- 改动文件：README.md, plan.md, process.txt
+- 改动说明：将 README 从混合型 API 手册重写为 207 行的入门教程，统一 Windows/Linux venv 安装与运行命令，修正当前 YAML schema、输出目录、波形命名、逻辑分析仪入口和功能边界，并加入 ModuleNotFoundError/scipy 排查说明。
+
+[2026-09-28 10:35] chore 清理无用目录和生成文件
+- 改动文件：.gitignore, README.md, ble_studio/modulator_v0.py, doc/logic_analyzer_data_processing.md, legacy/logic_analyzer/, results_logic_analyzer/, save_log.md, utils/, plan.md, research.md, process.txt
+- 改动说明：删除已迁移或无维护价值的旧逻辑分析仪脚本、重复工具、历史结果和保存日志；补充结果目录忽略规则；同步更新 README、研究记录和开发计划，保留当前可再生的核心源码、配置、样例和测试。

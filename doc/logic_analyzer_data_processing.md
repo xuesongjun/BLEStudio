@@ -6,4 +6,4 @@
 - [采样和提取规则](logic_analyzer/extraction_rules.md)
 - [输出格式契约](logic_analyzer/formats.md)
 
-旧版算法文档保存在 `legacy/logic_analyzer/docs/`，仅用于历史对照。
+旧版算法和实验脚本已从当前工作树移除，需要时可通过 Git history 查看。

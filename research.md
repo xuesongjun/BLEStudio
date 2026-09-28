@@ -583,3 +583,164 @@ golden reference。每个 Python 波形需要携带可长期追溯的描述，�
   active/padding 状态，本任务不借 JSON 功能顺带实现 interval padding。
 - 不修改 MATLAB generator；MATLAB 文件只用于 golden regression。
 - 不修改 channel 随机数接口，不在本任务接入 performance sweep。
+
+---
+
+# BLEStudio 仓库目录清理调研
+
+日期：2026-09-27
+
+## 1. 调研范围
+
+本轮只读检查覆盖：
+
+- Git tracked、untracked 和 ignored 文件；
+- 顶层目录、文件数量与磁盘占用；
+- Python import、CLI、配置、测试、README 和文档引用；
+- 可再生 artifact、原始 capture、golden reference、历史实现和兼容 wrapper。
+
+调研期间未删除文件。开始调研时 `master` 与 `origin/master` 同步，工作区无未提交改动。
+
+## 2. 高置信度可清理的本地产物
+
+以下内容均被 Git 忽略且可由现有代码、配置或测试重新生成：
+
+| 路径 | 约占用 | 依据 |
+|---|---:|---|
+| `artifacts/logic_analyzer/legacy/` | 826.40 MiB | 旧 HTML/TXT/VCD/NPY 等生成物 |
+| `artifacts/logic_analyzer/rssi_raw/` | 9.06 MiB | 由 RSSI capture 和正式 YAML 生成 |
+| `artifacts/logic_analyzer/adc_ddr/` | 1.92 MiB | 由 ADC DDR capture 和正式 YAML 生成 |
+| `artifacts/logic_analyzer/generated_adc.yaml` | 很小 | 临时生成配置 |
+| `artifacts/waveforms/ble_1m_prbs9_96m/` | 35.18 MiB | 旧命名波形，MEM 与正式目录 hash 相同 |
+| `.pytest_cache/`、各 `__pycache__/` | 0.80 MiB | Python/pytest cache |
+| `artifacts/pytest_tmp_commit_20260928/` | 空 | 测试临时目录 |
+| `template_data/` | 空 | 已完成迁移的旧目录残留 |
+
+上述范围约可释放 `873.37 MiB`。初始审计建议保留当前正式波形；执行阶段用户进一步
+明确要求删除所有可再生输出，因此 `artifacts/waveforms/` 和 `results/` 也纳入清理。
+继续保留：
+
+- `artifacts/logic_analyzer/.gitkeep`；
+- `data/logic_analyzer/captures/` 与 `quarantine/` 中的原始数据；
+- 生成波形所需的 source、配置、MATLAB golden reference 和 testcase。
+
+## 3. 高置信度 tracked 删除候选
+
+| 路径 | 结论与证据 |
+|---|---|
+| `results_logic_analyzer/` | 6.52 MiB 的旧报告和 IQ 导出；无代码、测试或文档引用，已被 `artifacts/logic_analyzer/` 取代 |
+| `save_log.md` | 旧 Claude conversation log；不参与运行、构建或测试，且不应作为产品文档保存 |
+| `ble_studio/modulator_v0.py` | 无 import/call site，是当前 `modulator.py` 的旧实现，Git history 已保留历史 |
+| `utils/get_bwv_info.py` | 无引用、无参数入口，并硬编码已过时的本机绝对路径 |
+| `utils/read_mat.py` | 无引用、无参数入口，并硬编码已过时的本机绝对路径 |
+| `utils/test.py` | 顶层立即执行的一次性 RF 调试脚本，不属于 pytest test suite |
+| `utils/test_rf_metrics.py` | 与 README 记录的 `utils/rf_metrics_test.py` 职责重叠；后者覆盖模式和脉冲长度分析 |
+| `legacy/logic_analyzer/` | production package、CLI 和 tests 均不依赖；目录自身声明不是受支持入口 |
+
+删除 `legacy/logic_analyzer/` 后，需要更新 `README.md` 目录树以及
+`doc/logic_analyzer_data_processing.md` 的历史目录说明。旧实现仍可通过 Git history 查看。
+
+## 4. 明确保留内容
+
+- `ble_studio/` 当前实现、`tests/`、`configs/`、`examples/` 和正式文档。
+- `reference/` 全部 MATLAB golden vectors、脚本、眼图和星座图。
+- `data/iq/BLE_1M.bwv`：loopback test 和两个 import 示例直接读取。
+- `data/logic_analyzer/fixtures/`、`profiles/` 和 `legacy_manifest.json`。
+- `data/logic_analyzer/captures/test.bin`、`rssi.bin`：正式配置直接读取。
+- `data/logic_analyzer/quarantine/test3.bin`：来源未确认，继续隔离而不是删除。
+- `doc/Core_v6.2.pdf`、`doc/RFPHY.TS_5.2.pdf`：虽占约 28 MiB，但属于规范依据。
+- `utils/logic_analyzer_bin2wave.py`、`bin_to_vcd.py`、`rssi_parser.py`、
+  `analyze_sampling_issues.py`：旧命令兼容 wrapper，删除会产生 Breaking Change。
+- `utils/analyze_signal.py`、`compare_iq.py` 及 README 已公开的分析工具：具备独立功能。
+- `venv/`：当前可工作的 Python 环境；本轮不以释放空间为由删除。
+- `.claude/settings.local.json`：用户本地工具配置；即使内容过时也不擅自删除。
+
+## 5. 暂不纳入自动清理
+
+- `data/logic_analyzer/captures/bk.kvdat` 与 `raw_data.kvdat` 内容完全相同，但它们属于
+  原始 capture。本轮不删除任何一份。
+- 示例配置存在命名或 payload 注释不一致，但属于后续配置修正任务，不借目录清理改行为。
+- 删除工作树文件不会缩小 `.git` 历史；如需减小 clone 体积，必须单独评估 history rewrite。
+
+## 6. 调研结论
+
+建议分两部分执行：
+
+1. 精确清理 ignored 的旧 artifact、cache 和空目录，预计释放约 `873.37 MiB`；
+2. 删除无引用的 tracked 旧输出、日志、旧实现和一次性脚本，并更新目录文档。
+
+该范围不删除 public API、正式 CLI、兼容 wrapper、golden vectors、规范 PDF、原始 capture
+或 Python 环境。Verilog 波形作为可再生 artifact 删除，后续可由 96 MHz 示例配置重新生成。
+
+---
+
+# README 使用教程审核
+
+日期：2026-09-28
+
+## 1. 当前问题
+
+当前 README 约 769 行、30 KB，同时承担入门教程、API 手册、实验记录和目录说明，首次使用
+路径不够清晰。快速开始使用裸 `pip` 和 `python`：
+
+```powershell
+pip install -e .
+python examples/demo.py
+```
+
+这不能保证安装和运行使用同一个 Python。在当前 Windows 环境中，系统 `python` 指向
+pyenv shim，未安装 `ble-studio`/`scipy`；项目 `venv` 中的 editable install 则可以正常
+导入 `ble_studio`。因此出现：
+
+```text
+ModuleNotFoundError: No module named 'ble_studio'
+```
+
+## 2. 已确认的正确入口
+
+Windows PowerShell：
+
+```powershell
+py -m venv venv
+.\venv\Scripts\python.exe -m pip install --upgrade pip
+.\venv\Scripts\python.exe -m pip install -e .
+.\venv\Scripts\python.exe examples\demo.py
+```
+
+开发依赖和测试使用同一个解释器：
+
+```powershell
+.\venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\venv\Scripts\python.exe -m pytest -q
+```
+
+Linux/macOS 使用 `python3 -m venv venv` 和 `./venv/bin/python` 对应路径。
+
+已确认 `venv` 可以导入 `ble_studio`，module CLI `python -m ble_studio.logic_analyzer --help`
+和安装后的 `ble-la --help` 入口存在。
+
+## 3. README 中需要修正的事实
+
+- 示例命令必须绑定 `.\venv\Scripts\python.exe`，或明确先激活 venv。
+- 默认配置结构是 `common`、`tx`、`channel`、`io`、`output`；现有 README 的
+  `mode`/`rf_test` 旧示例必须删除。
+- `examples/config.yaml` 当前使用 `ebn0_db: 100`，不是 README 声称的 SNR 15 dB。
+- `100 dB` 是近似理想信道；真正 bypass 使用 `ebn0_db: .inf`。
+- 输出目录由 `output.dir` 决定，默认是 `results/`；96 MHz 示例写入
+  `artifacts/waveforms/LE1M_96Msps_PRBS9_37B/`。
+- 只有 `io.output.enabled` 和对应导出开关打开时才会生成 TXT/MAT/MEM/JSON。
+- 当前正式支持 `LE 1M`、`LE 2M`；LE Coded S=2/S=8 尚未实现。
+- Python 尚未实现 Packet interval/625 us zero padding；不要在 README 中宣称已支持。
+- 采样率必须是 symbol rate 的整数倍。
+- 逻辑分析仪正式入口是 `ble-la` 或 `python -m ble_studio.logic_analyzer`；真实 capture
+  目录是本地输入，clean clone 不应假定存在完整采集数据。
+
+## 4. 建议保留的教程范围
+
+新版 README 只保留：项目定位、主要功能、Windows/Linux 安装、第一次运行、96 MHz
+LE1M PRBS9 37-byte 波形生成、当前 YAML 配置结构、输出命名和 JSON 说明、逻辑分析仪
+入口、支持范围、测试命令、关键目录和专题文档链接。
+
+删除或移出 README：大段 Packet/Modulator/Demodulator/Channel/Performance API 示例、
+完整 Visualizer 图表列表、长篇控制台输出、重复信道介绍、易失效的源码行号说明以及
+未经当前代码验证的能力声明。

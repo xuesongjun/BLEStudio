@@ -69,6 +69,7 @@ gui-sock-*
 
 # Results and outputs
 results/
+results_logic_analyzer/
 output_*.html
 artifacts/*
 !artifacts/logic_analyzer/
