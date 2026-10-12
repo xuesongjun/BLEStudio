@@ -1,0 +1,35 @@
+# 96 MHz LE Coded S2 PRBS9 理想单包；RF 合规尚未评估。
+common:
+  mode: "rf_test"
+  channel: 32
+tx:
+  phy_mode: "LE_CODED_S2"
+  sample_rate: 96.0e6
+  modulation_index: 0.5
+  bt: 0.5
+  payload_type: "PRBS9"
+  payload_length: 37
+  whitening: false
+  access_address: 0x71764129
+  crc_init: 0x555555
+channel:
+  type: "awgn"
+  ebn0_db: .inf
+  freq_offset: 0
+io:
+  output:
+    enabled: true
+    bit_width: 12
+    frac_bits: 0
+    iq_format: "two_column"
+    number_format: "signed"
+    scale_to_full: true
+    add_header: true
+    export_txt: true
+    export_mat: true
+    export_verilog: true
+    export_tx: true
+output:
+  dir: "artifacts/waveforms/LE500K_96Msps_PRBS9_37B"
+  html_report: true
+  theme: "instrument"

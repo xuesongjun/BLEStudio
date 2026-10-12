@@ -120,11 +120,7 @@ def validate_ble_rx(
         "input_samples": int(result.sample_count),
         "validation_samples": int(len(signal)),
     }
-    if phy_mode in (BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8):
-        output["warning"] = (
-            "现有 BLEDemodulator 尚未实现 LE Coded FEC，结果仅供诊断"
-        )
-    elif not resample and not np.isclose(
+    if not resample and not np.isclose(
         source_rate / symbol_rate,
         round(source_rate / symbol_rate),
         rtol=0,
@@ -156,6 +152,9 @@ def validate_ble_rx(
         "rssi_db": float(demodulated.rssi),
         "pdu_hex": demodulated.pdu.hex(),
         "decoded_bit_count": int(len(demodulated.bits)),
+        "failure_reason": demodulated.failure_reason,
+        "packet_start_sample": int(demodulated.packet_start_sample),
+        "packet_sample_count": int(demodulated.packet_sample_count),
     })
     result.rx_result = output
     return output

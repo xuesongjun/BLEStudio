@@ -3,7 +3,7 @@
 BLE Studio 是一个用于 BLE 基带仿真的 Python 工具，提供：
 
 - BLE Packet 和 RF Test/DTM 测试数据生成；
-- LE 1M/LE 2M GFSK TX、Channel、RX 理想闭环；
+- LE 1M/LE 2M/LE Coded S2/S8 GFSK TX、Channel、RX；
 - AWGN、频偏、衰落和其他信道损伤测试；
 - TXT、MAT、Verilog MEM 和 JSON 波形导出；
 - Kingst 逻辑分析仪 BIN 数据恢复和 BLE RX 验证。
@@ -14,7 +14,7 @@ BLE Studio 是一个用于 BLE 基带仿真的 Python 工具，提供：
 BLE TX 或外部 IQ → Channel → BLE RX → 报告/波形文件
 ```
 
-当前项目不是完整 BLE 协议栈。LE Coded S=2/S=8、连接状态机和 Packet interval
+当前项目不是完整 BLE 协议栈。连接状态机和 Packet interval
 （625 us zero padding）尚未实现。
 
 ## 快速开始
@@ -100,6 +100,25 @@ artifacts/waveforms/LE1M_96Msps_PRBS9_37B/
 当前 Python 生成的是单个 Packet。LE Test Packet 的 `I(L)` 周期和尾部 zero padding
 仍未实现；interval golden vector 保存在 `reference/BLE_PKT/`，用于后续 TDD 开发。
 
+### 生成 96 MHz LE Coded S2/S8
+
+同样使用 PRBS9、37 bytes，分别运行：
+
+```powershell
+.\venv\Scripts\python.exe examples\demo.py examples\config_rftest_s2_prbs9_96m.yaml
+.\venv\Scripts\python.exe examples\demo.py examples\config_rftest_s8_prbs9_96m.yaml
+```
+
+输出分别在 `artifacts/waveforms/LE500K_96Msps_PRBS9_37B/` 和
+`artifacts/waveforms/LE125K_96Msps_PRBS9_37B/`；`*_TX.mem` 为 Verilog IQ 输入，
+同名 JSON 记录 payload、编码模式和样点数。S2 为 101184 samples（1054 µs），
+S8 为 296448 samples（3088 µs），均为 96 SPS，无尾部补零。
+
+Coded 支持两段 FEC、CI/TERM、whitening、软判决 Viterbi、CRC 和完整 PDU 比对。
+`generate()` / RX `bits` 表示空中符号，不是 FEC 后的信息 bits。DTM 默认不白化。
+当前 Coded RF ΔF1/ΔF2 与频谱合规显示 `NOT_EVALUATED`；Coded 性能曲线和
+legacy advertising/extended advertising 流程不在本轮支持范围。
+
 ## 配置文件
 
 Demo 配置使用以下顶层结构：
@@ -110,7 +129,7 @@ common:
   channel: 0
 
 tx:
-  phy_mode: "LE_1M"     # LE_1M / LE_2M
+  phy_mode: "LE_1M"     # LE_1M / LE_2M / LE_CODED_S2 / LE_CODED_S8
   sample_rate: 96.0e6
   modulation_index: 0.5
   bt: 0.5
@@ -141,7 +160,7 @@ output:
   html_report: true
 ```
 
-采样率必须是当前 PHY symbol rate 的整数倍：LE 1M 使用 1 MHz，LE 2M 使用 2 MHz。
+采样率必须是空中 symbol rate 的整数倍：LE 1M/Coded 使用 1 MHz，LE 2M 使用 2 MHz。
 
 常用配置：
 
@@ -149,6 +168,8 @@ output:
 |---|---|
 | `examples/config.yaml` | 默认 RF Test 示例 |
 | `examples/config_rftest_1m_prbs9_96m.yaml` | 96 MHz、LE 1M、PRBS9、37 bytes |
+| `examples/config_rftest_s2_prbs9_96m.yaml` | 96 MHz、S2（LE500K）、PRBS9、37 bytes |
+| `examples/config_rftest_s8_prbs9_96m.yaml` | 96 MHz、S8（LE125K）、PRBS9、37 bytes |
 | `examples/config_rftest_2m_prbs15.yaml` | LE 2M、PRBS15 |
 | `examples/config_rftest_pattern.yaml` | RF Test 调制测试模板 |
 | `examples/config_advertising.yaml` | Advertising packet |
@@ -212,6 +233,15 @@ data/logic_analyzer/captures/rssi.bin
 .\venv\Scripts\ble-la.exe --help
 ```
 
+## VCS DAC TX 检查
+
+独立 checker 支持两路 `real` I/Q：SV monitor 在 `tx_dfe_en` 有效期间采集，包结束后
+通过 DPI-C 嵌入 Python，检查同步、CRC 和完整 PDU。接入和服务器验证见
+[VCS TX checker 使用文档](doc/vcs_tx_checker.md)。VCS 联调尚需在服务器执行 smoke。
+
+交给 IC Server AI 集成时，使用[上传文件清单](doc/ic_server_upload_files.txt)、
+[AI 交接文档](doc/ic_server_ai_handoff.md)和[集成与工作说明](doc/ic_server_integration.md)。
+
 ## 当前支持范围
 
 | 能力 | 状态 |
@@ -222,7 +252,8 @@ data/logic_analyzer/captures/rssi.bin
 | Advertising 基础 Packet | 支持 |
 | CRC、whitening、理想 TX/RX loopback | 支持 |
 | AWGN、频偏、衰落和部分 RF 指标 | 支持 |
-| LE Coded S=2/S=8 | 未实现，入口会抛出 `NotImplementedError` |
+| LE Coded S=2/S=8 Packet/TX/RX/checker | 支持，Core 符号向量与理想/量化 IQ 回归 |
+| Coded RF 合规与性能曲线 | 未评估；不产生 RF PASS |
 | Packet interval `I(L)` zero padding | 未实现 |
 | 完整 BLE 链路层/连接状态机 | 不在本项目范围 |
 
@@ -235,7 +266,7 @@ data/logic_analyzer/captures/rssi.bin
 .\venv\Scripts\python.exe -m pytest -q
 ```
 
-当前回归覆盖 Packet/Core vectors、TX/RX loopback、Channel、IQ metadata/exporter 和
+当前回归覆盖 Packet/Core vectors、S2/S8 FEC/Viterbi 与 TX/RX、Channel、IQ metadata/exporter 和
 逻辑分析仪 pipeline。
 
 ## 项目目录
@@ -248,6 +279,7 @@ doc/                        # 协议、算法和 logic analyzer 文档
 examples/                   # Demo 与 YAML 示例
 reference/                  # MATLAB golden 脚本和参考向量
 tests/                      # Core 与 logic analyzer 回归
+sim/vcs/                    # DAC TX monitor、Python DPI bridge 和 VCS smoke
 artifacts/                  # 可再生输出目录，默认不提交
 ```
 

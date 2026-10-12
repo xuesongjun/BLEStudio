@@ -7,7 +7,7 @@ import numpy as np
 from typing import Optional
 from dataclasses import dataclass
 from scipy.special import erf
-from .packet import BLEPhyMode, _validate_uncoded_phy
+from .packet import BLEPhyMode, _validate_phy
 
 
 @dataclass
@@ -32,7 +32,7 @@ class BLEModulator:
         """更新内部参数"""
         config = self.config
 
-        config.phy_mode = _validate_uncoded_phy(config.phy_mode)
+        config.phy_mode = _validate_phy(config.phy_mode)
         if not np.isfinite(config.sample_rate) or config.sample_rate <= 0:
             raise ValueError("sample_rate must be a positive finite value")
         if not np.isfinite(config.modulation_index) or config.modulation_index <= 0:
@@ -140,7 +140,7 @@ class BLEModulator:
         - 这会产生符号边界处的频率不连续 (Full Response 特性)
 
         Args:
-            bits: 输入比特流 (0/1)
+            bits: 输入空中符号 (0/1)，Coded 由 Packet 完成编码，不重复 FEC
 
         Returns:
             IQ 复基带信号

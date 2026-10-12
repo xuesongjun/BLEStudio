@@ -133,13 +133,13 @@ def test_matlab_bwv_reference_still_decodes() -> None:
     assert result.crc_valid is True
 
 
-@pytest.mark.parametrize("phy_mode", [BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8])
-def test_coded_phy_is_rejected_explicitly(phy_mode: BLEPhyMode) -> None:
-    with pytest.raises(NotImplementedError, match="LE Coded"):
+@pytest.mark.parametrize("phy_mode", [0, 5, "LE_UNKNOWN"])
+def test_unknown_phy_is_rejected_explicitly(phy_mode) -> None:
+    with pytest.raises(ValueError, match="phy_mode"):
         create_test_packet(phy_mode=phy_mode)
-    with pytest.raises(NotImplementedError, match="LE Coded"):
+    with pytest.raises(ValueError, match="phy_mode"):
         BLEModulator(ModulatorConfig(phy_mode=phy_mode))
-    with pytest.raises(NotImplementedError, match="LE Coded"):
+    with pytest.raises(ValueError, match="phy_mode"):
         BLEDemodulator(DemodulatorConfig(phy_mode=phy_mode))
 
 

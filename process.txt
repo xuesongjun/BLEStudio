@@ -13,3 +13,7 @@
 [2026-09-28 10:35] chore 清理无用目录和生成文件
 - 改动文件：.gitignore, README.md, ble_studio/modulator_v0.py, doc/logic_analyzer_data_processing.md, legacy/logic_analyzer/, results_logic_analyzer/, save_log.md, utils/, plan.md, research.md, process.txt
 - 改动说明：删除已迁移或无维护价值的旧逻辑分析仪脚本、重复工具、历史结果和保存日志；补充结果目录忽略规则；同步更新 README、研究记录和开发计划，保留当前可再生的核心源码、配置、样例和测试。
+
+[2026-10-12 14:51] feat 实现 LE Coded S2/S8 TX/RX 与 VCS DAC 整包检查
+- 改动文件：README.md, ble_studio/coded_phy.py, ble_studio/tx_checker.py, ble_studio/demodulator.py, ble_studio/modulator.py, ble_studio/packet.py, ble_studio/performance.py, ble_studio/report.py, ble_studio/logic_analyzer/validation.py, examples/config.yaml, examples/demo.py, examples/config_rftest_s2_prbs9_96m.yaml, examples/config_rftest_s8_prbs9_96m.yaml, sim/vcs/, tests/core/, tests/logic_analyzer/test_validation.py, tests/native/tx_checker_bridge_smoke.cpp, doc/vcs_tx_checker.md, doc/ic_server_ai_handoff.md, doc/ic_server_integration.md, doc/ic_server_upload_files.txt, plan.md, research.md, process.txt
+- 改动说明：增加 Core 规范向量、两段 FEC、S2/S8 pattern mapping 与软判决 Viterbi，接通 Packet、GFSK TX/RX、逻辑分析仪和 96 MHz PRBS9 波形导出；保留 uncoded/MATLAB golden 回归，为 Coded JSON 追加编码和空中符号信息。新增 real I/Q 整包 checker、SV monitor、CPython DPI bridge、19 场景 VCS smoke 和 IC Server 交接说明；同步修正发布状态，不新增外部依赖。完整 Python 回归 300 passed，Python 编译、Bash 语法及 diff 检查通过；真实 CentOS 7/VCS 2025/Python 3.10 联调仍待服务器验收，Coded RF 合规与性能曲线未评估。不纳入环境、生成产物或 xclip.rpm。

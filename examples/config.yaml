@@ -23,7 +23,7 @@ common:
 # 发送端 (TX)
 # ============================================================
 tx:
-  # PHY 模式: LE_1M, LE_2M；LE Coded 当前尚未实现
+  # PHY 模式: LE_1M, LE_2M, LE_CODED_S2, LE_CODED_S8
   phy_mode: "LE_1M"
   # 采样率 (Hz)
   sample_rate: 8.0e6

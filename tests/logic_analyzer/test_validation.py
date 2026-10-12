@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ble_studio import BLEModulator, ModulatorConfig, create_test_packet
+from ble_studio import BLEModulator, BLEPhyMode, ModulatorConfig, create_test_packet
 from ble_studio.logic_analyzer.models import (
     BleRxConfig,
     CaptureResult,
@@ -21,10 +21,10 @@ def _to_unsigned(values: np.ndarray, bit_width: int) -> np.ndarray:
     ).astype(np.uint16)
 
 
-def _ideal_dtm_result(tmp_path: Path) -> CaptureResult:
-    packet = create_test_packet(payload_length=37)
+def _ideal_dtm_result(tmp_path: Path, phy=BLEPhyMode.LE_1M) -> CaptureResult:
+    packet = create_test_packet(payload_length=37, phy_mode=phy)
     signal = BLEModulator(
-        ModulatorConfig(sample_rate=8e6)
+        ModulatorConfig(sample_rate=8e6, phy_mode=phy)
     ).modulate(packet.generate())
     bit_width = 14
     scale = (1 << (bit_width - 1)) - 1
@@ -42,7 +42,7 @@ def _ideal_dtm_result(tmp_path: Path) -> CaptureResult:
         bit_width=bit_width,
         ble_rx=BleRxConfig(
             enabled=True,
-            phy_mode="LE_1M",
+            phy_mode=phy.name,
             access_address=0x71764129,
             channel=0,
             whitening=False,
@@ -81,6 +81,18 @@ def test_ideal_dtm_rx_validation_resamples_to_integer_sps(tmp_path: Path) -> Non
     assert validation["sync_found"] is True
     assert validation["crc_valid"] is True
     assert result.rx_result == validation
+
+
+@pytest.mark.parametrize('phy', [BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8])
+@pytest.mark.parametrize('resample', [False, True])
+def test_coded_quantized_iq_validation(tmp_path, phy, resample):
+    result = _ideal_dtm_result(tmp_path, phy)
+    validation = validate_ble_rx(result, resample=resample)
+    assert validation['success'] and validation['sync_found'] and validation['crc_valid']
+    assert validation['pdu_hex'] == create_test_packet(phy_mode=phy).generate_pdu().hex()
+    assert validation['resampled'] is resample
+    assert 'warning' not in validation and 'error' not in validation
+    assert validation['failure_reason'] == ''
 
 
 def test_disabled_rx_validation_returns_structured_result(tmp_path: Path) -> None:

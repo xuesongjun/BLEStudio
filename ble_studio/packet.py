@@ -7,6 +7,7 @@ import numpy as np
 from typing import List, Optional, Union
 from dataclasses import dataclass, field
 from enum import IntEnum
+from .coded_phy import CODED_PREAMBLE, encode_coded_packet
 
 
 class BLEPhyMode(IntEnum):
@@ -101,24 +102,22 @@ def _validate_channel(channel: int) -> int:
     return channel
 
 
-def _validate_uncoded_phy(phy_mode: BLEPhyMode) -> BLEPhyMode:
-    """返回已支持的 uncoded PHY，Coded PHY 当前明确拒绝。"""
+def _validate_phy(phy_mode: BLEPhyMode) -> BLEPhyMode:
+    """返回已支持的 PHY 枚举。"""
     try:
         phy_mode = BLEPhyMode(phy_mode)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"Unsupported phy_mode: {phy_mode}") from exc
 
-    if phy_mode in (BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8):
-        raise NotImplementedError(
-            "LE Coded S=2/S=8 is not implemented; use LE_1M or LE_2M"
-        )
     return phy_mode
 
 
 def _generate_preamble(access_address: int, phy_mode: BLEPhyMode) -> np.ndarray:
-    """按 Access Address LSB 生成 LE 1M/2M 前导码。"""
+    """Coded 使用固定前导，LE 1M/2M 前导由 Access Address LSB 决定。"""
     access_address = _validate_uint("access_address", access_address, 32)
-    phy_mode = _validate_uncoded_phy(phy_mode)
+    phy_mode = _validate_phy(phy_mode)
+    if phy_mode in (BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8):
+        return CODED_PREAMBLE.copy()
     length = 16 if phy_mode == BLEPhyMode.LE_2M else 8
     first_bit = access_address & 1
     return np.fromiter(
@@ -380,7 +379,7 @@ class BLEPacket:
     def _validate_config(self) -> None:
         """校验 Packet 构建所需的公共字段。"""
         config = self.config
-        config.phy_mode = _validate_uncoded_phy(config.phy_mode)
+        config.phy_mode = _validate_phy(config.phy_mode)
         config.channel = _validate_channel(config.channel)
         try:
             config.channel_type = BLEChannelType(config.channel_type)
@@ -483,7 +482,7 @@ class BLEPacket:
         return pdu_header + config.payload
 
     def generate(self) -> np.ndarray:
-        """生成完整的 BLE 基带数据包 (比特流)"""
+        """生成完整空中符号序列；Coded 包含 FEC 和 pattern mapping。"""
         config = self.config
 
         # 1. 前导码
@@ -504,6 +503,10 @@ class BLEPacket:
         data_bits = np.concatenate([pdu_bits, crc_bits])
         whitened_bits = self._apply_whitening(data_bits, config.channel)
 
+        if config.phy_mode in (BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8):
+            scheme = 2 if config.phy_mode == BLEPhyMode.LE_CODED_S2 else 8
+            return encode_coded_packet(access_addr_bits, whitened_bits, scheme)
+
         # 6. 组合完整数据包
         packet_bits = np.concatenate([
             preamble,
@@ -514,7 +517,7 @@ class BLEPacket:
         return packet_bits
 
     def generate_bytes(self) -> bytes:
-        """生成数据包字节"""
+        """按 LSB-first 打包空中符号；Coded 输出不是未编码的 PDU。"""
         bits = self.generate()
         # 补齐到字节边界
         pad_len = (8 - len(bits) % 8) % 8
@@ -867,7 +870,7 @@ class RFTestPacket(BLEPacket):
 
     def __init__(self, config: Optional[RFTestConfig] = None):
         self.test_config = config or RFTestConfig()
-        self.test_config.phy_mode = _validate_uncoded_phy(
+        self.test_config.phy_mode = _validate_phy(
             self.test_config.phy_mode
         )
         self.test_config.channel = _validate_channel(self.test_config.channel)
@@ -912,7 +915,7 @@ class RFTestPacket(BLEPacket):
         self._test_payload = payload
 
     def generate(self) -> np.ndarray:
-        """生成完整的 RF Test 数据包 (比特流) - 可配置白化"""
+        """生成 RF Test 空中符号；可配置白化，Coded 在白化之后编码。"""
         config = self.config
 
         # 1. 前导码
@@ -933,6 +936,10 @@ class RFTestPacket(BLEPacket):
         data_bits = np.concatenate([pdu_bits, crc_bits])
         if self.test_config.whitening:
             data_bits = self._apply_whitening(data_bits, config.channel)
+
+        if config.phy_mode in (BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8):
+            scheme = 2 if config.phy_mode == BLEPhyMode.LE_CODED_S2 else 8
+            return encode_coded_packet(access_addr_bits, data_bits, scheme)
 
         # 6. 组合完整数据包
         packet_bits = np.concatenate([

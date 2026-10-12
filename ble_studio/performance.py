@@ -81,6 +81,12 @@ class BLEPerformanceTester:
         """初始化测试环境"""
         config = self.config
 
+        if config.phy_mode in (BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8):
+            raise NotImplementedError(
+                "Coded performance is not implemented on the legacy advertising path; "
+                "use the Coded packet loopback or TX checker"
+            )
+
         if config.seed is not None:
             np.random.seed(config.seed)
 

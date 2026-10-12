@@ -1,3 +1,356 @@
+# LE Coded S=2/S=8 TX/RX 实施计划
+
+日期：2026-10-12。状态：本地实现与 TDD 回归完成；真实服务器 VCS smoke 待验收。
+依据及现有调用关系见 research.md 的「LE Coded S=2/S=8 专项调研」。
+以下为当前任务，后面的既有计划及其未完成项全部保留。
+
+## 1. 本轮交付范围
+
+实现真实的 LE Coded S=2/S=8 Packet、理想 GFSK TX/RX、整包 checker，
+并接通现有波形导出、逻辑分析仪 RX 和 VCS 接口。按 TDD 顺序推进：
+
+1. Core 官方 FEC、pattern mapper 和完整发送符号向量。
+2. 分段 TX/RX、CI/TERM 处理、同步/CRC/完整 PDU 比对。
+3. 96 MHz DTM 波形、JSON/MEM 导出、checker 和接入测试。
+
+保留 LE1M/LE2M 的现有算法与结果，不新增第三方依赖，不依赖 MATLAB/license。
+使用现有枚举：LE_CODED_S8=3、LE_CODED_S2=4，不改变编号或 DPI 函数签名。
+继续要求整数 SPS；SPS 指空中符号的采样数，不是信息 bit 的采样数。
+
+本轮不做 RF ΔF1/ΔF2 校正、RF signoff、Coded 灵敏度/PER 曲线、streaming RX、
+连接状态机、extended advertising 流程、Packet interval 或最小运行包解耦。
+这些未完成需求不取消。已有性能模块是 legacy advertising 路径，Coded 在该入口
+继续明确报未支持，不能生成错误数据或把原始符号 BER 当作 FEC 后 BER。
+独立 Coded 模块的纠错测试属于本轮；整个平台的噪声性能验收不属于本轮。
+
+## 2. 编码和 Packet/TX 方案
+
+新增内部模块 `ble_studio/coded_phy.py`，仅包含 Coded 帧常量、卷积编码、pattern
+映射/软度量、Viterbi 和帧长度计算。它不反向 import packet，避免循环依赖。
+不建立新的公共框架，也不复制现有 CRC、PRBS、whitening 或 GFSK 实现。
+
+- Packet 校验接受四种已支持 PHY；更新所有 `_validate_uncoded_phy` 调用方，
+  不简单删除检查让 Coded 落入原来的 LE1M 拼帧。
+- `_generate_preamble` 为 Coded 生成专用前导；uncoded 生成逻辑保持原样。
+- `BLEPacket.generate()` 和 `RFTestPacket.generate()` 的 Coded 分支复用现有
+  PDU/CRC/whitening，然后组装两个 FEC block、CI、TERM 和 pattern mapping。
+- 两个 block 分开处理，正确处理初始化/终态和 TERM，不对白化后的空中符号再次
+  编码，也不把整包统一按 S2 或 S8 编码。
+- `generate()` 仍返回一维 uint8 的 0/1 空中符号序列；`generate_bytes()` 继续
+  是该序列按现有规则打包，不改成未编码 PDU，文档注明 Coded 含编码符号。
+- Modulator 对 Coded 使用对应空中符号率，直接调制 Packet 已编码的符号，
+  不在 Modulator 内做第二次 FEC。原有相位脉冲和 LE1M/LE2M 数值结果不改。
+- DTM 默认 whitening 关闭；普通 data packet 在 FEC 之前使用现有 whitening。
+
+## 3. RX 方案与接口兼容
+
+保留 uncoded 解调主路径，新增 Coded 分支，复用现有 FM/匹配滤波/定时工具。
+新增的软判决 Viterbi 用 NumPy 实现，不引入通信工具库。
+
+1. 以 Coded preamble 和编码后的已配置 AA 做同步，不沿用 uncoded AA 模板。
+   Coded 频偏估计使用同步得到的平衡 preamble，不能直接依赖整包相位均值，否则
+   长固定 payload 的码型偏置可能被误作 CFO；只调整 Coded 分支。
+2. 对第一 block 解映射/解码，核对 AA、CI 和终态；CI 必须是合法值，且与配置
+   期望的 S2/S8 一致。首版不自动切换到另一 PHY 掩盖 testcase 配置错误。
+3. 按实际 CI 解码第二 block；先解出 header，并按配置去白化后读取长度。部分
+   header 解码不能假定已到 TERM/零终态；完整 block 再按实际包长和终态解码，
+   复核 header。严格截取本包 PDU/CRC/TERM，不把尾部零、下一包或未编码样点
+   解释为本包数据。
+4. FEC 解码后按配置去白化，复用现有 CRC 和 PDU 解析。同步、FEC/字段、长度、
+   CRC 或内容检查失败均不得 PASS；可纠正的信道错误应正确恢复，不能把任意
+   单 bit 损伤都要求判 FAIL。
+5. 不可恢复、截断、非法 CI 和 PHY/CI 不符返回明确诊断，不吞异常、不理想 TX 回退。
+
+`DemodulationResult.bits` 保持原始空中符号判决含义，不悄悄改成 FEC 后信息 bits。
+PDU 放在已有 `pdu` 字段。为准确边界和诊断，在 dataclass 尾部增加有默认值的
+`packet_start_sample`、`packet_sample_count`、`failure_reason`；原字段顺序不变，
+既有构造/读取方式继续兼容。检查 performance、逻辑分析仪、Demo、checker 等调用方。
+
+`find_packets()` 新增 Coded 路径，使用包起点/完整包长推进，不能沿用固定 0.5 ms
+窗口或用解码后信息 bit 数推算样点。测试前导空白、长包、相邻包和结尾包。
+uncoded 多包搜索行为在本轮不主动重构。
+
+## 4. checker、VCS 与已有入口
+
+- `tx_checker.py` 按 PHY 计算正确的最短样点数，透传 RX 的 Coded 失败诊断，
+  成功条件仍为 sync + CRC + 完整 PDU match。既有 JSON 字段与 DPI 签名不变。
+- `ble_python_dpi_pkg.sv` 添加 Coded 的显式常量，与 Python 枚举一致；C++ bridge
+  保持现有传参 ABI，不另开 subprocess 或逐样点调用。
+- monitor 默认 `MAX_SAMPLES` 调至 2097152，覆盖 96 MHz、255-byte S8 单包并保持
+  有界；用户显式设置较小值时仍如实报超限，不自动截断。
+- smoke TB buffer 至少覆盖 37-byte S8；同步调整卡高测试和 watchdog，不能因正常
+  长包改变就使原来的超限/timeout 负例失效。沿用 HDL coding-style 的验证代码规范。
+- fixture generator、SV smoke 和原生 bridge smoke 增加 S2/S8 正常包、连续不同
+  模式、错误 PDU/CRC 和 CI/配置不符；原 11 个场景不能删除。
+- Demo 添加两个 96 MHz/PRBS9/37-byte 配置；沿用 LE500K/LE125K 命名及现有 TXT、
+  MAT、MEM、pretty JSON。metadata 区分信息长度与空中符号数量，既有 schema/version
+  和 LE1M/LE2M 字段不改；必要的新字段仅追加并测试。
+- Demo 的 legacy advertising+Coded 明确拒绝；不把 LE1M 的 ADV_IND 交给 Coded
+  Modulator 伪装成有效 Coded packet。普通 data packet 的 PHY 路径单独验收。
+- Demo/report 对 Coded 明确显示 RF `NOT_EVALUATED`，不调用当前 uncoded 区域算法
+  给出错误 ΔF1/ΔF2 或频谱合规 PASS。图表仍可显示，但不宣称 RF 测试已完成。
+- 逻辑分析仪 RX 保留整数 SPS 重采样方式，去掉“未实现 Coded”旧提示，补充 S2/S8
+  定点 I/Q 验证。已有非 Coded 行为保持不变。
+- performance 在 Coded 入口保留明确未支持提示与测试，后续单独定义 FEC 前/后 BER
+  和 PER 激励；不静默继续使用 legacy LE1M 广播包。
+
+## 5. TDD 验收矩阵
+
+### A. Red：独立规范向量
+
+新增 `tests/core/fixtures/le_coded_core_6_2.json`，记录 Core 6.2 的版本、章节、
+输入和固定输出；不能由待测编码器现场生成 expected。不需要 MATLAB Coded IQ。
+新增 `tests/core/test_coded_phy.py`：
+
+- Core Part C §2.1 的参考信息包和 §2.2 的 block1/block2 FEC 输入输出逐 bit 相等，含 TERM。
+- §2.3/2.4 的 S8 pattern 映射及 S2 不映射、完整发送序列逐符号相等。
+- 解码官方符号向量还原输入；独立接收路径不能调用 TX 重新生成自身期望值。
+- 先写失败测试，再实现编码/解映射/Viterbi。验证 0/1 输入、长度、初态/终态、
+  可纠正损伤、截断和保留 CI，禁止只测 encode/decode 自我闭环。
+
+### B. Packet 与理想 I/Q loopback
+
+新增 `tests/core/test_coded_loopback.py`，替换旧的两项 Coded 拒绝测试，保留非法
+PHY/非整数 SPS 的拒绝测试：
+
+- S2/S8，8/96 MHz；DTM PRBS9/37 bytes 的完整 PDU、CRC 和同步。
+- payload 0、1、37、255 bytes；PRBS15、固定 pattern（含全 0/全 1）和任意 data PDU。
+- whitening on/off、不同 channel、自定义 AA/CRCInit。
+- 白化范围/顺序、两个 FEC block 边界和样点数断言。
+- 前后零区、非整符号采样偏移、common phase rotation、正幅度缩放。
+- 错误 CRC、错误 expected PDU、PHY/CI 不符、截断和无信号不能误 PASS。
+- 错误 CRC fixture 在 FEC 之前破坏 CRC，再编码发送；不能把“翻转末尾空中符号”
+  当作一定会 CRC 失败，因为接收端可能正确纠错。可纠正损伤另设正例。
+- `find_packets` 长包和连续多包，不因 0.5 ms 窗口漏掉 Coded。
+
+### C. 平台与集成
+
+- checker 同步/CRC/PDU 各 gate、重复不同模式和 JSON 信息正确。
+- 96 MHz 两种新配置能导出 MAT/TXT/MEM 和可读 sidecar，实际样点数与包长一致。
+- Demo/report 不展示 Coded RF PASS；legacy advertising/performance 明确拒绝。
+- 逻辑分析仪 RX 的量化 I/Q 与重采样验证。
+- Python 针对性测试、原有完整回归、Python compile、Bash syntax、diff 检查。
+- 原生 bridge smoke；有实际 VCS 时执行真实 SV/C++ smoke。没有 VCS 时记录待验收，
+  不用原生/Verilator 结果代替实际 VCS 通过。
+
+## 6. 预计改动文件
+
+新增：`ble_studio/coded_phy.py`、两份 Coded 测试、Core JSON fixture，以及
+`examples/config_rftest_s2_prbs9_96m.yaml`、`examples/config_rftest_s8_prbs9_96m.yaml`。
+
+修改：`ble_studio/packet.py`、`modulator.py`、`demodulator.py`、`tx_checker.py`、
+`performance.py`、`report.py`、`logic_analyzer/validation.py`、`examples/demo.py`，
+以及对应 loopback/checker/performance/metadata/Demo/逻辑分析仪测试。
+
+VCS：`ble_python_dpi_pkg.sv`、`ble_tx_monitor.sv`、`tb_ble_tx_monitor.sv`、
+`generate_fixture.py`、`run_smoke.sh`、`tests/native/tx_checker_bridge_smoke.cpp`。
+共享 C++ header/bridge 只有实际验证发现必要兼容问题时才改，并先说明证据。
+
+文档：README、VCS 接入/AI 交接/上传清单、research/plan；清单需包含新增 codec。
+重新打包前核验全部依赖，不删除或冒充覆盖旧的 20261009 交接快照。
+不改 MATLAB golden、基础量化库或无关用户文件，不引入新的外部依赖。
+
+## 7. 当前 TODO 与验证基线
+
+- [x] 核对项目规则、调用关系、已有修改和测试。
+- [x] 核对 Core 6.2 编码、帧格式与独立 sample data。
+- [x] 基线完整回归：2026-10-12 本机 Python 3.13.7，126 passed in 9.64s。
+- [x] 编写 research/plan，评估 ABI、bit 含义和已有入口。
+- [x] 用户确认 GO。
+- [x] 固定规范向量与 Red 测试。
+- [x] 编码、TX、分段 RX 与 Green 测试。
+- [x] checker、导出/报告、逻辑分析仪与 VCS 接入。
+- [x] 短包→长包、不同 sample phase 的边界 regression；本包前导局部定时细化。
+- [x] 1/2/3/16 SPS 的附加接收回归；低 SPS 边界外软观测按 erasure 处理。
+- [x] 针对性/完整回归、native smoke、diff 与文档核对。
+- [x] 新日期交接包的 manifest/hash 与独立解包测试。
+- [ ] 真实 CentOS 7/VCS 2025/Python 3.10 smoke（依赖服务器环境）。
+
+用户于 2026-10-12 追加授权 commit/push；按实际提交时间追加 process.txt，
+提交范围包含此前未提交的 checker/VCS 交接功能和本轮 S2/S8，不包含生成产物或 xclip.rpm。
+如实现需要新依赖、改变既有接口语义或扩大到 RF/性能算法，停止并重新确认计划。
+
+## 8. 本轮执行结果（2026-10-12）
+
+- TDD：codec 导入失败 Red → 26 项官方 FEC/mapper/完整 air vector Green；
+  Packet/RX、checker 诊断、平台导出/报告和 VCS fixture 分别先验证失败再实现。
+- 最终全量：本机 Python 3.13.7，`venv/Scripts/python.exe -m pytest -q -p no:cacheprovider`，
+  **300 passed in 39.30s**（提交前再次回归）。无失败或跳过；uncoded/MATLAB golden 回归保留。
+- Coded/Core/loopback/checker/VCS fixture 为 196 项针对性测试；包含 1/2/3/16 SPS
+  附加回归、CRC 在 FEC 前注入、保留 CI、PHY/CI 不符、截断、纯载波与无信号。
+- 多包 sample-phase 额外 sweep：S2/S8、4 种 leading offset、8 种 gap，共 64 项
+  均恢复两包及精确边界。半符号 phase mismatch 已保存 regression；初始同步改在
+  sample 域，后续只用本包前导确定 symbol clock/CFO，不让长后包控制前包定时。
+- `compileall`、Bash `-n`、`git diff --check` 通过；未新增依赖或更改 DPI ABI。
+- native bridge：GCC 15.2.0，C++11/Wall/Wextra/Werror 编译通过；真实嵌入本机
+  CPython 3.13.7，S2/S8 正确包、CRC/PDU/CI 负例、异常恢复与回到 uncoded 均通过。
+  非法 hex 测试输出 traceback 是预期负例，结束为 `NATIVE_BRIDGE_SMOKE_PASS`。
+- native 记录：`artifacts/vcs_tx_checker/native_coded_20261012_104505/`。
+- Verilator 5.040 仅做 `--lint-only --timing`：无错误，仍有 34 个 BLKSEQ 和 10 个
+  clocking-input UNDRIVEN 警告；不是 clean lint、SV 功能仿真或 VCS 验收。
+- VCS smoke 保留原 11 个场景并新增 8 个 Coded 场景，共 19 项待实际服务器执行。
+- monitor 默认 MAX_SAMPLES=2097152；smoke TB=327680、watchdog=10ms。
+- 两份 96 MHz/PRBS9/37-byte 配置导出 MAT/TXT/MEM/pretty JSON 并核验文件 hash、
+  row/sample count；Coded RF 仅 `NOT_EVALUATED`，不调用 uncoded RF 算法。
+- 用户追加授权 commit/push，process.txt 按实际提交记录追加；旧 20261009 archive 保留。
+- 交接 manifest 共 50 个文件，无缺失/重复；preflight 独立解包核对全部 SHA-256，
+  使用解包目录实际 package 完成 **196 passed in 15.50s**（含 fixture 重生成）。
+  打包使用新日期 `artifacts/ic_server_handoff/BLEStudio_IC_Server_20261012.tar.gz`；
+  不包含 Windows 环境、生成波形、原生二进制或用户无关的 xclip.rpm。
+
+---
+
+# VCS DAC TX 整包解调接入计划
+
+状态：本地实现与验证完成，服务器 VCS smoke 待验证（2026-10-09）
+
+交接补充（2026-10-09）：用户要求提供上传清单、服务器 AI 交接文档和集成/工作说明。
+按精确 manifest 打包完整 Python 源码、VCS 组件和针对性测试；不包含 Windows
+环境、可再生产物和无关文件。本轮只补充交接材料，不改 RX/monitor 算法。
+
+- [x] 核对 package 导入、安装依赖和服务器接入条件。
+- [x] 编写上传清单、AI 交接文档及集成/工作说明。
+- [x] 验证清单、文档链接、压缩包内容和解包后的针对性测试。
+- [x] 准备可上传的压缩包和文档入口。
+
+交接验证结果：manifest 共 41 个文件，包含完整 24 个 Python package 源文件，
+文档内部链接与 Bash LF 检查通过；压缩包条目与 manifest 完全一致，解包文件
+SHA256 一致。独立解包目录 33 项 checker 测试和 fixture 生成通过。
+额外离线 wheel 构建未完成，原因是本机 venv 缺少 setuptools/wheel，未安装新工具。
+实际服务器安装、VCS smoke 和 DUT 绑定仍待 IC Server AI 执行。
+
+## 1. 目标和环境
+
+将现有 RX 封装成独立 TX checker，在 DAC 一包输出结束后通过 DPI 调用 Python，
+检查同步、CRC、完整 PDU，并把结果返回 SV scoreboard。
+
+用户已确认：CentOS 7、VCS 2025、Python 3.10、96 MHz、两路有符号 `real`
+DAC 输出，数据有效信号 `tx_dfe_en`；接受先实现整包解调。
+
+```text
+DAC real I/Q -> SV monitor -> DPI-C/C++ -> CPython 3.10 -> BLEDemodulator
+                                                        |
+SV scoreboard <- 状态与错误原因 <------------------------+
+```
+
+暂按一个连续的 `tx_dfe_en` 有效区间对应一整包设计，实际接入时必须确认。
+若 enable 跨越多包或存在包内间断，需要另接包边界信号。DAC clock/IQ 层级名
+未提供，使用通用 monitor 端口绑定，不猜测实际层级。
+
+## 2. Python checker
+
+新增 `ble_studio/tx_checker.py`，复用 `BLEDemodulator`、`DemodulatorConfig`：
+
+- 输入两路 real 数组、采样率、PHY、Access Address、channel、whitening、CRCInit，
+  以及 case 提供的完整 expected PDU（Header + Payload，不包含 CRC）。
+- 校验一维、等长、非空、finite、采样率和支持的 PHY/integer SPS；组合为
+  `complex128`，不量化、不独立归一化 I/Q、不自动交换通道或修正极性。
+- 直接调用 RX，不经过 Demo、信道或理想 TX 回退；预期 PDU 必须来自 case，不能
+  用刚收到的数据生成自己的期望值。
+- 输出 sample count、采样率、sync、CRC、PDU match、received/expected PDU、
+  `passed` 和 failure reason；配置错误抛出异常，数据不符返回 FAIL。
+- 可选每包诊断 JSON 复用已有 `write_pretty_json()`，独立文件名避免覆盖。
+
+通过条件：输入有效 AND sync AND CRC AND 完整 PDU match。
+当前 RX 同步采用容错相关，结果中的 Access Address 来自配置，不宣称为严格 AA 解码。
+
+## 3. DPI bridge
+
+新增 `sim/vcs/ble_python_dpi.cpp`、`sim/vcs/ble_python_dpi_pkg.sv`：
+
+- SV queue 转 dynamic array，经 `input real ...[]` 传入 DPI；C/C++ 使用 VCS
+  `svdpi.h`、生成的 prototype 和 open-array 元素访问函数读取 double。
+  不假定连续存储，不硬编码 simulator ABI。
+- 每进程初始化 Python 一次，缓存 checker callable，每包调用一次；使用正确的
+  引用计数和 interpreter/GIL 生命周期，不逐样点跨语言调用或每包重启解释器。
+- 使用同一 Python 3.10 安装的 headers、embedding 链接参数和 runtime library；
+  配置嵌入解释器的 module path/venv，确认 BLEStudio、NumPy、SciPy 均能导入。
+  仅在 shell 激活 venv 不能替代嵌入环境验证。
+- 第一版使用 Python C API 传 real 列表，由已有 NumPy 转数组，不新增依赖。
+- Python 异常保留 traceback，返回 bridge error 并导致 case FAIL，不吞异常。
+- 同步 DPI function 消耗 wall-clock 时间，不执行仿真延时、SV 回调或后台线程交互。
+- 检查解释器是否已被其它验证组件初始化，明确 ownership，不关闭其它组件的解释器。
+
+## 4. SV monitor
+
+新增 `sim/vcs/ble_tx_monitor.sv`，按 HDL coding-style skill 放在验证目录 `sim/`：
+
+- 输入 DAC sample clock、复位、`tx_dfe_en`、real I/Q 和 case 检查配置。
+- 使用明确的 clocking/sampling region 避免 DUT NBA 竞争；提供 sampling skew
+  配置，实际绑定时确认 DAC 更新边沿，不能默认加一个任意 delay。
+- 有效区间开始时清空 buffer 并锁存协议配置/expected PDU；有效的每个周期
+  收集一组 I/Q；区间结束同步检查并输出 checked pulse、packet count 和结果。
+- enable X/Z、复位打断有效包、buffer 超限明确报错；real NaN/Infinity 由
+  checker 校验，不把 real 当四态逻辑处理。
+- 提供 case 显式完成检查和 timeout 接口，缺包或 enable 卡高不能默认通过；
+  不在 SV final 块中执行复杂 Python 调用。
+- 最后样点与 enable 的边界按 DAC 有效语义验证，不默认增加 tail samples。
+- 仅在 DAC 时钟域采集，不新增 CDC；异步控制接入需单独确认时序。
+
+## 5. TDD 与验证
+
+先新增 `tests/core/test_tx_checker.py`，随后实现 checker：
+
+1. 96 MHz/LE1M/PRBS9/37 bytes real IQ：sync、CRC、完整 PDU match。
+2. LE2M、whitening、custom AA/CRCInit 的正确包。
+3. 正确 CRC 但 expected PDU 错误时 FAIL；故意发送错误 CRC 时 FAIL。
+4. 空输入、不等长、NaN/Infinity、全零、非法采样率有明确错误或失败。
+5. 前后零区、正幅度缩放、common phase rotation 不改变正确数据结果。
+6. 重复检查不同配置的数据包不串包，不保留上一包结果。
+
+新增 `sim/vcs/tb_ble_tx_monitor.sv`、`sim/vcs/run_smoke.sh`：
+
+- 从 fixture 驱动 real IQ 和 enable，编译/运行真实 DPI bridge。
+- 正确包 PASS，wrong expected PDU/CRC FAIL，连续两包正确计数。
+- 验证首次/末次样点、采样调度、复位打断、enable X、缺包和卡高。
+- Python import/配置失败让 smoke 非零退出，保留诊断。
+- build/log/JSON 输出到 `artifacts/vcs_tx_checker/`；不递归清理用户目录，
+  不修改服务器软件安装，复用当前依赖。
+
+本机运行 Python 针对性测试、完整回归和 diff 检查。VCS smoke 必须在实际
+CentOS 7/VCS 2025/Python 3.10 环境执行；本机没有 VCS，未验证部分保留待验证，
+不能用 Python 测试或 C++ 语法检查替代 VCS 联调。
+
+## 6. 文件和范围
+
+新增：上述 checker/test、SV pkg/monitor/smoke TB、C++ bridge 及共享 header、smoke
+脚本、fixture generator、`tests/native/tx_checker_bridge_smoke.cpp`，以及
+`doc/vcs_tx_checker.md`。原生 smoke 用测试 adapter 验证真实 CPython embedding，
+不替代 VCS ABI 和 SV 调度验证。更新 README 简短接入链接、plan.md、research.md。
+提交时按实际时间追加 process.txt。
+
+不改现有 RX 算法、Demo 和 RFMeasure，不新增外部依赖。后续保留 RF 合规校正：
+payload 边界、PHY 门限、逐 bit ΔF2 统计、两种 pattern 配对，再加入 RF 自动验收。
+Streaming RX 另行评估。
+
+## 7. 当前 TODO
+
+- [x] 核实现有 RX、real IQ、依赖和 HDL 规则。
+- [x] 调研 CPython embedding 与 DPI 数组接口。
+- [x] 制定实施和 TDD 方案。
+- [x] 用户确认 GO。
+- [x] Python checker TDD 和回归。
+- [x] SV/DPI/smoke/接入文档。
+- [x] 本机验证和最终 diff。
+- [ ] 服务器 VCS smoke（需要实际执行环境）。
+
+## 8. 本地执行结果
+
+- 先运行新增测试得到缺少 tx_checker 的 Red，再实现后 33 项针对性测试 Green。
+- 完整 Python 回归：126 passed（本机 Python 3.13.7）。
+- 原生 C++ bridge 在 GCC 15.2.0、`-std=c++11 -Wall -Wextra -Werror` 下编译，
+  真正嵌入本机 CPython 并调用 checker；正常包、非零/降序数组下标、PDU 不符、
+  错误 CRC、异常 traceback、异常恢复及不同 PHY/whitening/CRCInit 连续调用通过。
+- Verilator 5.040 静态展开无语法错误，生成的 DPI prototype 与 C++ header 同时
+  编译通过；保留 34 条 BLKSEQ（验证组件的 blocking 操作）和 10 条 UNDRIVEN
+  （clocking input）警告，不宣称 clean lint 或实际 SV 功能仿真通过。
+- Bash syntax、Python compile 和 diff whitespace 检查通过。
+- 服务器 VCS/Python 3.10 实际编译运行未执行；四态 enable、采样 region 和真实
+  simulator ABI 的验收保留在 VCS smoke。
+- 本次未执行 Git commit，process.txt 按项目规则在提交时追加。
+
+---
+
 # LE Test Packet Interval 零填充计划
 
 状态：待实现（截至 2026-09-28）

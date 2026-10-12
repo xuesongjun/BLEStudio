@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+from ble_studio.packet import BLEPhyMode
+
 from ble_studio.performance import (
     BLEPerformanceTester,
     TestConfig as PerformanceTestConfig,
@@ -37,3 +40,9 @@ def test_bit_error_count_includes_length_difference() -> None:
     )
 
     assert errors == 2
+
+
+@pytest.mark.parametrize('phy', [BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8])
+def test_legacy_advertising_performance_does_not_fake_coded_ber(phy):
+    with pytest.raises(NotImplementedError, match='Coded performance'):
+        BLEPerformanceTester(PerformanceTestConfig(phy_mode=phy))

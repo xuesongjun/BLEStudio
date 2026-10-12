@@ -19,7 +19,12 @@ from .packet import (
     _generate_whitening_sequence,
     _validate_channel,
     _validate_uint,
-    _validate_uncoded_phy,
+    _validate_phy,
+)
+from .coded_phy import (
+    CODED_PREAMBLE, CODED_PREFIX_SYMBOLS, TERM_BITS,
+    convolutional_encode, pattern_map, pattern_demap, viterbi_decode,
+    coded_symbol_count,
 )
 
 
@@ -51,6 +56,9 @@ class DemodulationResult:
     timing_offset: float               # 定时偏移估计
     sync_found: bool = False           # 是否找到同步 (前导码+接入地址)
     access_address: int = 0            # 检测到的接入地址
+    packet_start_sample: int = 0       # 完整包在输入中的起点
+    packet_sample_count: int = 0       # 完整包长度，不含 idle
+    failure_reason: str = ''           # Coded 分段解码诊断
 
 
 class BLEDemodulator:
@@ -58,6 +66,8 @@ class BLEDemodulator:
 
     # 广播接入地址
     ADV_ACCESS_ADDRESS = 0x8E89BED6
+    _CODED_SYNC_THRESHOLD = 0.8
+    _CODED_SYNC_VARIANCE_TOLERANCE = 1e-12
 
     def __init__(self, config: Optional[DemodulatorConfig] = None):
         self.config = config or DemodulatorConfig()
@@ -67,7 +77,8 @@ class BLEDemodulator:
         """更新内部参数"""
         config = self.config
 
-        config.phy_mode = _validate_uncoded_phy(config.phy_mode)
+        config.phy_mode = _validate_phy(config.phy_mode)
+        self.is_coded = config.phy_mode in (BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8)
         config.channel = _validate_channel(config.channel)
         config.access_address = _validate_uint(
             "access_address", config.access_address, 32
@@ -114,7 +125,11 @@ class BLEDemodulator:
         # 生成前导码 + 接入地址的匹配模式
         preamble = _generate_preamble(aa, self.config.phy_mode)
 
-        self.sync_pattern = np.concatenate([preamble, self.access_address_bits])
+        if self.is_coded:
+            encoded_aa = pattern_map(convolutional_encode(self.access_address_bits), 8)
+            self.sync_pattern = np.concatenate((preamble, encoded_aa))
+        else:
+            self.sync_pattern = np.concatenate([preamble, self.access_address_bits])
 
     def _generate_gaussian_filter(self):
         """生成高斯匹配滤波器 (用于接收端)
@@ -415,6 +430,8 @@ class BLEDemodulator:
             解调结果
         """
         config = self.config
+        if self.is_coded:
+            return self._demodulate_coded(signal)
 
         # 1. 估计 RSSI
         rssi = 10 * np.log10(np.mean(np.abs(signal) ** 2) + 1e-10)
@@ -536,6 +553,129 @@ class BLEDemodulator:
             access_address=config.access_address
         )
 
+    def _demodulate_coded(self, signal: np.ndarray) -> DemodulationResult:
+        """按两个 FEC block 解码，不以整包频率均值补偿 Coded 的数据码型。"""
+        signal = np.asarray(signal, dtype=complex)
+        if signal.ndim != 1 or not np.all(np.isfinite(signal)):
+            raise ValueError("signal must be a finite one-dimensional IQ array")
+        rssi = float(10 * np.log10(np.mean(np.abs(signal) ** 2) + 1e-10)) if len(signal) else -100.0
+        result = DemodulationResult(False, np.empty(0, dtype=np.uint8), b'', False, rssi, 0.0, 0.0)
+        if not len(signal) or not np.any(signal):
+            result.failure_reason = 'NO_SIGNAL'
+            return result
+        sps = self.samples_per_symbol
+        if len(signal) < CODED_PREFIX_SYMBOLS * sps:
+            result.failure_reason = 'TRUNCATED_PACKET'
+            return result
+
+        freq = self._fm_demodulate(signal)
+        filtered = self._matched_filter(freq)
+        # 同步先在 sample 域做，避免后包的 symbol clock 导致前包完全被漏掉。
+        # 模板只有固定前导和配置 AA，没有重新生成或猜测待接收的 payload。
+        pattern = np.repeat(2.0 * self.sync_pattern - 1.0, sps)
+        width = len(pattern)
+        if len(filtered) < width:
+            result.failure_reason = 'TRUNCATED_PACKET'
+            return result
+        # 同步使用去均值的归一化软相关，允许 CFO，而不提前猜测或重新生成 payload。
+        corr = scipy_signal.correlate(filtered, pattern, mode='valid', method='auto')
+        sums = np.concatenate(([0.0], np.cumsum(filtered)))
+        squares = np.concatenate(([0.0], np.cumsum(filtered ** 2)))
+        window_power = squares[width:] - squares[:-width]
+        energy = window_power - (sums[width:] - sums[:-width]) ** 2 / width
+        normalized = corr / np.sqrt(np.maximum(energy, 1e-30) * width)
+        # 纯载波窗口的方差接近零，不能把累加误差放大为虚假的同步峰。
+        normalized[energy <= self._CODED_SYNC_VARIANCE_TOLERANCE * np.maximum(window_power, 1e-30)] = 0.0
+        peaks, _ = scipy_signal.find_peaks(np.pad(normalized, (1, 1)), height=self._CODED_SYNC_THRESHOLD)
+        if not len(peaks):
+            result.failure_reason = 'SYNC_NOT_FOUND'
+            return result
+        # FM 差分约延迟一个 sample；偶数长度的 same 滤波再增加半 sample。
+        # 粗模板是矩形 NRZ，先还原包边界，再用本包前导确定实际中心。
+        filter_delay = 1 + int(sps % 2 == 0)
+        start = max(0, int(peaks[0] - 1) - filter_delay)
+        # FM 差分和偶数长度匹配滤波器使中心采样落在半符号后一个 sample。
+        center = sps // 2 + 1
+        # 多包可以拥有不同 sample phase，长包不能替前面的短包决定 symbol clock。
+        # 在已找到的本包前导内细化 clock，再选离粗同步点最近的同相位 sample。
+        local = filtered[start:start + len(CODED_PREAMBLE) * sps]
+        _, local_timing = self._symbol_timing_recovery(local)
+        phase = (start + int(round(local_timing * sps))) % sps
+        sync = int(round((start + center - phase) / sps))
+        timing = phase / sps
+        result.timing_offset = timing
+        start = max(0, sync * sps + phase - center)
+        result.packet_start_sample = start
+        preamble_start = start + 8 * sps
+        preamble_end = start + (len(CODED_PREAMBLE) - 8) * sps
+        offset_phase = float(np.mean(freq[preamble_start:preamble_end]))
+        result.freq_offset = offset_phase * self.config.sample_rate / (2 * np.pi)
+        # 从平衡前导估计 CFO，保留同一符号 clock；只在当前 Coded 路径补偿。
+        corrected = self._matched_filter(freq - offset_phase)[phase::sps]
+        result.bits = (corrected > 0).astype(np.uint8)
+        air = corrected[sync:]
+        if len(air) < CODED_PREFIX_SYMBOLS:
+            result.failure_reason = 'TRUNCATED_PACKET'
+            return result
+        block_one = viterbi_decode(pattern_demap(air[len(CODED_PREAMBLE):CODED_PREFIX_SYMBOLS], 8))
+        if not np.array_equal(block_one[:32], self.access_address_bits) or np.any(block_one[-TERM_BITS:]):
+            result.failure_reason = 'FEC_BLOCK_ONE_INVALID'
+            return result
+        result.sync_found = True
+        result.access_address = self.config.access_address
+        ci = block_one[32:34]
+        if ci[1] != 0:
+            result.failure_reason = 'INVALID_CI'
+            return result
+        scheme = 2 if ci[0] else 8
+        expected_scheme = 2 if self.config.phy_mode == BLEPhyMode.LE_CODED_S2 else 8
+        if scheme != expected_scheme:
+            result.failure_reason = 'PHY_CI_MISMATCH'
+            return result
+
+        data = air[CODED_PREFIX_SYMBOLS:]
+        header_symbols = (16 + TERM_BITS) * scheme
+        if len(data) < header_symbols:
+            result.failure_reason = 'TRUNCATED_PACKET'
+            return result
+        # header 是 prefix，不是终止 block；用额外的约束长度观测，不强制零终态。
+        header_bits = viterbi_decode(pattern_demap(data[:header_symbols], scheme), terminated=False)[:16]
+        if self.config.whitening:
+            header_bits = self._remove_whitening(header_bits, self.config.channel)
+        header = self._bits_to_bytes(header_bits)
+        symbol_count = coded_symbol_count(header[1], scheme)
+        result.packet_sample_count = symbol_count * sps
+        if start + result.packet_sample_count > len(signal):
+            result.pdu = header
+            result.failure_reason = 'TRUNCATED_PACKET'
+            return result
+        if len(air) < symbol_count:
+            # 1/2 SPS 的差分/滤波中心可能位于最后一个 symbol 的边界外。
+            # 样点总数已确认完整；缺失的软观测作为 erasure(0)交给终态约束，
+            # 不补造 IQ 或把解码结果改写回原始 air decisions。
+            if sps <= 2 and len(air) == symbol_count - 1:
+                data = np.pad(data, (0, 1))
+            else:
+                result.pdu = header
+                result.failure_reason = 'TRUNCATED_PACKET'
+                return result
+        decoded = viterbi_decode(pattern_demap(data[:symbol_count - CODED_PREFIX_SYMBOLS], scheme))
+        if np.any(decoded[-TERM_BITS:]):
+            result.failure_reason = 'FEC_BLOCK_TWO_INVALID'
+            return result
+        decoded = decoded[:-TERM_BITS]
+        if self.config.whitening:
+            decoded = self._remove_whitening(decoded, self.config.channel)
+        pdu_crc = self._bits_to_bytes(decoded)
+        if pdu_crc[:2] != header:
+            result.failure_reason = 'HEADER_DECODE_MISMATCH'
+            return result
+        result.pdu = pdu_crc[:-3]
+        result.crc_valid, _ = self._check_crc(pdu_crc)
+        result.success = result.crc_valid
+        result.failure_reason = '' if result.success else 'CRC_FAILED'
+        return result
+
     def find_packets(self, signal: np.ndarray, max_packets: int = 10) -> List[DemodulationResult]:
         """
         在信号中查找多个数据包
@@ -547,6 +687,26 @@ class BLEDemodulator:
         Returns:
             解调结果列表
         """
+        if self.is_coded:
+            results = []
+            offset = 0
+            scheme = 2 if self.config.phy_mode == BLEPhyMode.LE_CODED_S2 else 8
+            minimum = coded_symbol_count(0, scheme) * self.samples_per_symbol
+            while len(signal) - offset >= minimum and len(results) < max_packets:
+                result = self.demodulate(signal[offset:])
+                if result.success:
+                    result.packet_start_sample += offset
+                    results.append(result)
+                    offset = result.packet_start_sample + result.packet_sample_count
+                elif result.failure_reason in ('NO_SIGNAL', 'SYNC_NOT_FOUND', 'TRUNCATED_PACKET'):
+                    break
+                else:
+                    # CRC/CI 损坏的已识别包不能 PASS；跳过已知边界继续查找后续包。
+                    offset += result.packet_start_sample + max(
+                        result.packet_sample_count, CODED_PREFIX_SYMBOLS * self.samples_per_symbol,
+                    )
+            return results
+
         results = []
         offset = 0
         window_size = int(self.config.sample_rate * 0.5e-3)  # 0.5ms 窗口

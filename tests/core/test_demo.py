@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from ble_studio.packet import BLEPhyMode
 
 from examples.demo import SimConfig, run_simulation
 
@@ -41,4 +42,11 @@ def test_advertising_rejects_custom_access_address(tmp_path) -> None:
     )
 
     with pytest.raises(ValueError, match="fixed Access Address"):
+        run_simulation(config, {})
+
+
+@pytest.mark.parametrize('phy', [BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8])
+def test_legacy_advertising_does_not_masquerade_as_coded_packet(tmp_path, phy):
+    config = SimConfig(mode='advertising', phy_mode=phy, html_report=False, output_dir=str(tmp_path))
+    with pytest.raises(NotImplementedError, match='legacy advertising'):
         run_simulation(config, {})

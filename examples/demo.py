@@ -282,7 +282,7 @@ def _build_packet_metadata(
         whitening = bool(cfg.whitening)
         frequency_mhz = test_info.get("frequency_mhz")
 
-    return {
+    metadata = {
         "phy_mode": _canonical_phy_name(cfg.phy_mode),
         "channel_index": int(cfg.channel),
         "frequency_mhz": frequency_mhz,
@@ -299,6 +299,17 @@ def _build_packet_metadata(
         "whitening": whitening,
         "packet_bit_count": int(len(bits)),
     }
+    if cfg.phy_mode in (BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8):
+        scheme = 2 if cfg.phy_mode == BLEPhyMode.LE_CODED_S2 else 8
+        # 保留旧 packet_bit_count 的空中 0/1 序列含义，同时明确区分信息 bits。
+        metadata.update({
+            "air_symbol_count": int(len(bits)),
+            "pdu_crc_information_bit_count": (len(pdu) + 3) * 8,
+            "coding_scheme": scheme,
+            "coding_indicator_bits": "10" if scheme == 2 else "00",
+            "whitening_stage": "pdu_crc_before_fec",
+        })
+    return metadata
 
 
 def _build_signal_metadata(
@@ -473,6 +484,11 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
         raise ValueError(
             f"Unsupported mode '{cfg.mode}', expected one of: "
             f"{', '.join(sorted(supported_modes))}"
+        )
+    is_coded = cfg.phy_mode in (BLEPhyMode.LE_CODED_S2, BLEPhyMode.LE_CODED_S8)
+    if cfg.mode == 'advertising' and is_coded:
+        raise NotImplementedError(
+            "Coded legacy advertising is not supported; use rf_test/dtm or a data packet"
         )
 
     print("=" * 60)
@@ -662,7 +678,10 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
           f"匹配={'OK' if payload_match else 'FAIL'}")
 
     # 7. RF 指标 (仅 RF Test 模式)
-    if cfg.mode in ('rf_test', 'dtm'):
+    if is_coded:
+        rf_metrics = {'status': 'NOT_EVALUATED', 'reason': 'Coded RF metrics are not implemented'}
+        print('[RF] NOT_EVALUATED: Coded ΔF1/ΔF2 and spectrum compliance are not implemented')
+    elif cfg.mode in ('rf_test', 'dtm'):
         # 根据实际采样率计算 samples_per_symbol
         actual_sps = int(sample_rate / modulator.symbol_rate)
         rf_metrics = calculate_rf_metrics(
@@ -681,6 +700,7 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
         results = {
             'tx': {'bits': len(bits), 'payload_len': len(tx_payload), 'test_mode': test_info['payload_type']},
             'modulation': {
+                'phy_mode': cfg.phy_mode.name,
                 'sample_rate_mhz': sample_rate / 1e6,
                 'symbol_rate_msps': modulator.symbol_rate / 1e6,
                 'modulation_index': cfg.modulation_index,
@@ -700,6 +720,7 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
                 'payload_match': payload_match,
             },
             'rf_test': test_info,
+            'rf_metrics': rf_metrics,
         }
         reporter = ReportGenerator(cfg.output_dir, theme=cfg.theme)
         reporter.generate_all(results, tx_signal, channel_out, bits, sample_rate)

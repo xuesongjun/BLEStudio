@@ -24,6 +24,7 @@ from examples.demo import (
     _imported_waveform_basename,
     _sample_rate_token,
     run_simulation,
+    load_config,
 )
 
 
@@ -373,3 +374,45 @@ def test_finite_awgn_rx_manifest_records_applied_channel(tmp_path: Path) -> None
         "random_seed": None,
     }
     assert "Infinity" not in raw
+
+
+@pytest.mark.parametrize(('scheme', 'phy_token', 'symbol_count'), [(2, 'LE500K', 1054), (8, 'LE125K', 3088)])
+def test_coded_96m_configs_export_described_waveforms_without_fake_rf_pass(tmp_path, monkeypatch, scheme, phy_token, symbol_count):
+    def unexpected_rf_calculation(*args, **kwargs):
+        raise AssertionError('Uncoded RF metrics must not evaluate a Coded packet')
+
+    monkeypatch.setattr('examples.demo.calculate_rf_metrics', unexpected_rf_calculation)
+    monkeypatch.setattr('ble_studio.report.calculate_rf_metrics', unexpected_rf_calculation)
+    raw = load_config(str(PROJECT_ROOT / f'examples/config_rftest_s{scheme}_prbs9_96m.yaml'))
+    assert raw['tx']['phy_mode'] == f'LE_CODED_S{scheme}'
+    config = SimConfig.from_dict(raw)
+    config.output_dir = str(tmp_path)
+    result = run_simulation(config, raw)
+    assert result.success and result.crc_valid
+    stem = f'{phy_token}_96Msps_PRBS9_37B_TX'
+    metadata, text = _strict_json(tmp_path / f'{stem}.json')
+    assert metadata['schema_version'] == 1
+    assert metadata['packet']['phy_mode'] == phy_token
+    assert metadata['packet']['packet_bit_count'] == symbol_count
+    assert metadata['packet']['air_symbol_count'] == symbol_count
+    assert metadata['packet']['pdu_crc_information_bit_count'] == (2 + 37 + 3) * 8
+    assert metadata['packet']['coding_scheme'] == scheme
+    assert metadata['packet']['coding_indicator_bits'] == ('10' if scheme == 2 else '00')
+    assert metadata['packet']['whitening_stage'] == 'pdu_crc_before_fec'
+    assert metadata['signal']['sample_count'] == symbol_count * 96
+    assert metadata['signal']['samples_per_symbol'] == 96
+    assert metadata['signal']['duration_us'] == symbol_count
+    for extension in ('txt', 'mat', 'mem'):
+        path = tmp_path / f'{stem}.{extension}'
+        assert metadata['files'][extension]['sha256'] == _sha256(path)
+    mem_lines = (tmp_path / f'{stem}.mem').read_text(encoding='ascii').splitlines()
+    assert len(mem_lines) == symbol_count * 96
+    assert all(re.fullmatch(r'[0-9A-F]{6}', line) for line in mem_lines)
+    assert loadmat(tmp_path / f'{stem}.mat')['iq'].size == symbol_count * 96
+    assert '\n  "packet"' in text
+    for page in ('index.html', 'charts.html', 'report.html'):
+        html = (tmp_path / page).read_text(encoding='utf-8')
+        assert '频谱图 ✓ PASS' not in html and '频谱 ✓ PASS' not in html
+        assert 'ΔF2≥185kHz' not in html
+    assert 'NOT_EVALUATED' in (tmp_path / 'index.html').read_text(encoding='utf-8')
+    assert 'NOT_EVALUATED' in (tmp_path / 'report.html').read_text(encoding='utf-8')

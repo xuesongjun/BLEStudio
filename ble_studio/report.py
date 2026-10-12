@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 from typing import Dict, Any, Optional
 import numpy as np
+import plotly.graph_objects as go
 
 from .visualizer import BLEVisualizer
 from .measure import calculate_rf_metrics
@@ -141,6 +142,8 @@ class ReportGenerator:
 
         # 获取 PHY 模式用于频谱模版
         phy_mode = mod.get('phy_mode', 'LE_1M')
+        phy_name = str(getattr(phy_mode, 'name', phy_mode)).upper()
+        is_coded = phy_name in ('LE_CODED_S2', 'LE_CODED_S8', 'LE125K', 'LE500K', 'LE_CODED')
         if '2M' in str(phy_mode):
             phy_mode_str = 'LE_2M'
         else:
@@ -148,7 +151,7 @@ class ReportGenerator:
 
         # 频谱图 - 启用 BLE 频谱模版
         fig_spectrum = self.viz.plot_spectrum(rx_signal, sample_rate, title='频谱图',
-                                               show_mask=True, phy_mode=phy_mode_str)
+                                               show_mask=not is_coded, phy_mode=phy_mode_str)
         fig_spectrum.update_layout(height=280, margin=dict(l=50, r=30, t=40, b=40))
 
         fig_const = self.viz.plot_constellation(rx_signal, title='星座图', downsample=8)
@@ -166,14 +169,18 @@ class ReportGenerator:
 
         # 计算 RF 测试指标 - 使用 RX 信号, 传入 payload_type
         payload_type = rf_test.get('payload_type', tx.get('test_mode', 'ADV'))
-        rf_metrics = calculate_rf_metrics(
-            rx_signal, sample_rate, samples_per_symbol,
-            payload_type=payload_type
-        )
-        rf_metrics['payload_type'] = payload_type
-
-        # 新增: RF 测试仪表盘
-        fig_rf_panel = self.viz.plot_rf_metrics_panel(rf_metrics, title='RF 测试指标', payload_type=payload_type)
+        if is_coded:
+            rf_metrics = {'status': 'NOT_EVALUATED', 'reason': 'Coded RF metrics are not implemented'}
+            fig_rf_panel = go.Figure()
+            fig_rf_panel.add_annotation(text='NOT_EVALUATED<br>Coded RF 指标尚未实现', showarrow=False)
+            fig_rf_panel.update_layout(title='RF 测试指标 — NOT_EVALUATED', height=280)
+        else:
+            rf_metrics = calculate_rf_metrics(
+                rx_signal, sample_rate, samples_per_symbol,
+                payload_type=payload_type
+            )
+            rf_metrics['payload_type'] = payload_type
+            fig_rf_panel = self.viz.plot_rf_metrics_panel(rf_metrics, title='RF 测试指标', payload_type=payload_type)
 
         # 转换为 JSON (使用共享函数解码 bdata 格式)
         chart_iq_json = _fig_to_json(fig_iq)
@@ -209,6 +216,8 @@ class ReportGenerator:
 
         # 获取 PHY 模式用于频谱模版
         phy_mode = mod.get('phy_mode', 'LE_1M')
+        phy_name = str(getattr(phy_mode, 'name', phy_mode)).upper()
+        is_coded = phy_name in ('LE_CODED_S2', 'LE_CODED_S8', 'LE125K', 'LE500K', 'LE_CODED')
         if '2M' in str(phy_mode):
             phy_mode_str = 'LE_2M'
         else:
@@ -217,7 +226,7 @@ class ReportGenerator:
         # TX 端图表 (理想信号)
         tx_charts = [
             ('IQ 时域波形', 'chart-tx-iq', self.viz.plot_iq_combined(iq_signal, sample_rate, title='TX IQ 波形', max_samples=max_samples_iq)),
-            ('频谱图', 'chart-tx-spectrum', self.viz.plot_spectrum(iq_signal, sample_rate, title='TX 频谱', show_mask=True, phy_mode=phy_mode_str)),
+            ('频谱图', 'chart-tx-spectrum', self.viz.plot_spectrum(iq_signal, sample_rate, title='TX 频谱', show_mask=not is_coded, phy_mode=phy_mode_str)),
             ('星座图', 'chart-tx-const', self.viz.plot_constellation(iq_signal, title='TX 星座图', downsample=8)),
             ('瞬时频率', 'chart-tx-freq', self.viz.plot_frequency_deviation(iq_signal, sample_rate, title='TX 瞬时频率')),
             ('IQ 眼图', 'chart-tx-iq-eye', self.viz.plot_iq_eye_diagram(iq_signal, samples_per_symbol, title='TX IQ 眼图', num_traces=80, sample_rate=sample_rate)),
@@ -227,7 +236,7 @@ class ReportGenerator:
         # RX 端图表 (经过信道后的信号)
         rx_charts = [
             ('IQ 时域波形', 'chart-rx-iq', self.viz.plot_iq_combined(noisy_signal, sample_rate, title='RX IQ 波形', max_samples=max_samples_iq)),
-            ('频谱图', 'chart-rx-spectrum', self.viz.plot_spectrum(noisy_signal, sample_rate, title='RX 频谱', show_mask=True, phy_mode=phy_mode_str)),
+            ('频谱图', 'chart-rx-spectrum', self.viz.plot_spectrum(noisy_signal, sample_rate, title='RX 频谱', show_mask=not is_coded, phy_mode=phy_mode_str)),
             ('星座图', 'chart-rx-const', self.viz.plot_constellation(noisy_signal, title='RX 星座图', downsample=8)),
             ('瞬时频率', 'chart-rx-freq', self.viz.plot_frequency_deviation(noisy_signal, sample_rate, title='RX 瞬时频率')),
             ('IQ 眼图', 'chart-rx-iq-eye', self.viz.plot_iq_eye_diagram(noisy_signal, samples_per_symbol, title='RX IQ 眼图', num_traces=80, sample_rate=sample_rate)),
@@ -236,7 +245,7 @@ class ReportGenerator:
 
         # 公共图表 (比特流、时频谱图)
         common_charts = [
-            ('TX 比特流', 'chart-bits', self.viz.plot_bits(bits, title='TX 数据包比特流')),
+            ('TX 空中符号' if is_coded else 'TX 比特流', 'chart-bits', self.viz.plot_bits(bits, title='TX 空中符号' if is_coded else 'TX 数据包比特流')),
             ('时频谱图', 'chart-spectrogram', self.viz.plot_spectrogram(iq_signal, sample_rate, title='TX 时频谱图')),
         ]
 
@@ -290,6 +299,13 @@ class ReportGenerator:
                         chart_iq, chart_spectrum, chart_const, chart_freq,
                         chart_eye, chart_rf_panel):
         """首页模板"""
+        if rf_metrics.get('status') == 'NOT_EVALUATED':
+            rf_rows = '<div class="status-row"><span class="label">Coded RF</span><span class="value">NOT_EVALUATED</span></div><p>ΔF1/ΔF2 与频谱合规尚未评估。</p>'
+        else:
+            rf_rows = f'''<div class="status-row"><span class="label">ΔF1 Avg</span><span class="value">{rf_metrics.get('delta_f1_avg', 0):.1f} kHz</span></div>
+                <div class="status-row"><span class="label">ΔF2 Avg</span><span class="value">{rf_metrics.get('delta_f2_avg', 0):.1f} kHz</span></div>
+                <div class="status-row"><span class="label">ΔF2/ΔF1</span><span class="value">{rf_metrics.get('delta_f2_ratio', 0):.2f}</span></div>
+                <div class="status-row"><span class="label">ΔF2≥185kHz</span><span class="status-badge {'success' if rf_metrics.get('delta_f2_pass') else 'fail'}">{'PASS' if rf_metrics.get('delta_f2_pass') else 'FAIL'}</span></div>'''
         return f'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -369,10 +385,7 @@ class ReportGenerator:
             </div>
             <div class="status-card">
                 <h3>RF 测试结果</h3>
-                <div class="status-row"><span class="label">ΔF1 Avg</span><span class="value">{rf_metrics.get('delta_f1_avg', 0):.1f} kHz</span></div>
-                <div class="status-row"><span class="label">ΔF2 Avg</span><span class="value">{rf_metrics.get('delta_f2_avg', 0):.1f} kHz</span></div>
-                <div class="status-row"><span class="label">ΔF2/ΔF1</span><span class="value">{rf_metrics.get('delta_f2_ratio', 0):.2f}</span></div>
-                <div class="status-row"><span class="label">ΔF2≥185kHz</span><span class="status-badge {'success' if rf_metrics.get('delta_f2_pass') else 'fail'}">{'PASS' if rf_metrics.get('delta_f2_pass') else 'FAIL'}</span></div>
+                {rf_rows}
             </div>
             <div class="nav-links">
                 <a href="report.html" class="nav-link report">查看详细报告 &rarr;</a>
@@ -609,6 +622,8 @@ class ReportGenerator:
                 <tr><th>符号率</th><td>{mod.get('symbol_rate_msps', 'N/A')} Msps</td></tr>
                 <tr><th>调制指数</th><td>{mod.get('modulation_index', 'N/A')}</td></tr>
                 <tr><th>高斯滤波器 BT</th><td>{mod.get('bt', 'N/A')}</td></tr>
+                <tr><th>PHY</th><td>{mod.get('phy_mode', 'N/A')}</td></tr>
+                <tr><th>RF 评估</th><td>{results.get('rf_metrics', {}).get('status', 'See index')}</td></tr>
             </table>
         </div></div>
         <div class="card"><div class="card-header">信道模型</div><div class="card-body">
