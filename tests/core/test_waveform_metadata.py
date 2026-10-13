@@ -29,7 +29,7 @@ from examples.demo import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-GOLDEN_DIR = PROJECT_ROOT / "reference" / "BLE_PKT"
+GOLDEN_DIR = PROJECT_ROOT / "reference" / "vectors"
 TX_STEM_96M = "LE1M_96Msps_PRBS9_37B_TX"
 RX_STEM_96M = "LE1M_96Msps_PRBS9_37B_RX"
 
@@ -383,7 +383,7 @@ def test_coded_96m_configs_export_described_waveforms_without_fake_rf_pass(tmp_p
 
     monkeypatch.setattr('examples.demo.calculate_rf_metrics', unexpected_rf_calculation)
     monkeypatch.setattr('ble_studio.report.calculate_rf_metrics', unexpected_rf_calculation)
-    raw = load_config(str(PROJECT_ROOT / f'examples/config_rftest_s{scheme}_prbs9_96m.yaml'))
+    raw = load_config(str(PROJECT_ROOT / f'configs/waveforms/rftest_s{scheme}_prbs9_96m.yaml'))
     assert raw['tx']['phy_mode'] == f'LE_CODED_S{scheme}'
     config = SimConfig.from_dict(raw)
     config.output_dir = str(tmp_path)

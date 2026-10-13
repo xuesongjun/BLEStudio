@@ -1,0 +1,30 @@
+# BLE Studio - 全信道扫描测试
+#
+# 信道列表:
+#   0-36: 数据信道 (2404-2478 MHz)
+#   37: 2402 MHz, 38: 2426 MHz, 39: 2480 MHz
+
+# 公共参数
+common:
+  mode: "rf_test"
+  channel: 39  # 修改此值测试不同信道
+
+# 发送端
+tx:
+  phy_mode: "LE_1M"
+  sample_rate: 8.0e6
+  modulation_index: 0.5
+  bt: 0.5
+  payload_type: "PRBS9"
+  payload_length: 37
+  whitening: false
+
+# 信道模型 (理想)
+channel:
+  snr_db: 30
+  freq_offset: 0
+
+# 输出
+output:
+  dir: "artifacts/waveforms/channel_scan"
+  html_report: true

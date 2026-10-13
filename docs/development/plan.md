@@ -1,0 +1,2092 @@
+# 移除 LogicAnalyzer 的活动残留
+
+日期：2026-10-13。状态：用户 GO 后已完成最小清理、TDD、完整回归和最终检查，未 commit/push。
+用户已自行将 LogicAnalyzer 移出 BLEStudio，明确后续不再考虑它。
+本轮不恢复、迁移或检查外部归档，不修改用户既有删除和 Git 暂存状态。
+以下历史计划、执行结果和其他未完成项完整保留；不自动 commit/push。
+
+## 1. 已核实事实
+
+- 工作区已不存在 LogicAnalyzer 目录；ble_studio、examples、configs、scripts、sim
+  中未发现对该功能的活动引用，核心 TX/RX 和自检无需修改。
+- README 仍包含已失效的归档链接、目录树条目及保留归档的说明；两份 VCS 集成文档
+  仍将归档作为当前目录组成介绍。上传清单本身没有归档路径，无需修改。
+- pyproject.toml 的包发现 exclude 仍有 LogicAnalyzer*；.gitignore 仍有其捕获目录
+  及 results_logic_analyzer 的旧规则，均已不对应当前项目内容。
+- tests/tooling/test_repository_layout.py 中有两项可选归档检查，现在只会 SKIP；
+  README 链接测试还特判跳过失效归档链接，其他目录/隔离运行测试仍有归档专属断言。
+  保留核心安装范围、隔离运行、有效链接和交接清单检查，不再维护归档专属行为。
+- docs/development 和 process.txt 中的相关描述是既有开发历史，本轮不改写历史。
+
+## 2. 最小修改范围
+
+1. README.md：删除失效链接、归档目录条目和归档使用说明，调整对应迁移/测试描述。
+   保留现有运行环境、快速自检、波形生成、目录用途及主测试教程。
+2. pyproject.toml：仅删除无效的 LogicAnalyzer* exclude，保留 ble_studio* include、
+   namespaces=false 和 tests/examples exclude；不改依赖、版本和公共 API。
+3. .gitignore：删除归档捕获路径和 results_logic_analyzer 的专属规则，其余规则不变。
+4. tests/tooling/test_repository_layout.py：删除两项不再适用的归档检查及仅供它们使用的
+   imports；将其余相关测试改为核心包范围、隔离源码运行、所有 README 相对链接有效、
+   交接清单路径存在且唯一的通用检查，移除跳过失效链接的特例。
+5. docs/integration/vcs/ic_server_ai_handoff.md、ic_server_integration.md：删除当前
+   归档说明，不改交接接口、文件清单和已经发生的验收记录。
+6. 本节持续记录进度与实际验收结果。保留旧开发记录和用户的其他未提交改动，
+   process.txt 留待用户授权实际 commit 时按真实提交时间追加。
+
+不删除其他测试、参考波形、配置或核心功能；不新增依赖，不扫描项目外的归档。
+两项归档检查属于用户明确移除功能后的失效检查，不作为主项目的永久 SKIP 保留。
+
+## 3. TDD 与验收
+
+- 先更新通用布局断言：README 相对链接不再有归档例外，包发现 exclude 与当前
+  tests/examples 范围一致；在清理文档与配置前运行，确认按预期 Red。
+- 完成上述最小清理后，运行目录布局和环境自检的针对性测试，确认 Green。
+- 运行主项目完整 pytest；当前 324 项收集用例中移除两项失效归档检查后，预期
+  322 项通过且无归档相关 SKIP，具体以实际执行结果为准。
+- 直接执行 README 的环境自检命令，确认基础 TX/RX PASS；扫描活动源码、配置、
+  文档和测试，不再有归档引用或特例。历史开发文档及 process.txt 不纳入残留判定。
+- 检查 git diff、diff --check 和 README 链接，确认无算法、golden 或无关改动；
+  不自动 commit/push，不将 Windows/Python 3.13.7 结果等同于服务器 VCS 验收。
+
+## 4. 当前 TODO
+
+- [x] 核实用户移除状态、核心无依赖及活动残留位置。
+- [x] 写明最小清理范围、TDD 与验收方案。
+- [x] 用户 GO。
+- [x] TDD Red、清理活动残留、针对性 Green。
+- [x] 完整回归、自检、路径/diff 检查与执行记录。
+
+## 5. 执行与验收记录
+
+- TDD Red：先移除 README 链接测试的归档例外、更新核心包 exclude 断言，运行两项
+  回归得到 2 failed（2.38s），原因分别为旧 exclude 和失效的 LogicAnalyzer/README.md。
+- 已清理 README、pyproject.toml、.gitignore 与两份 VCS 文档中的活动归档说明/规则。
+  目录测试仅删除两项失效归档检查，其余相关检查改为通用核心布局约束。
+- 针对性 Green：23 项目录布局测试与 22 项环境自检测试共 45 passed（8.36s），
+  无 SKIP。活动源码、配置、测试及非历史文档扫描未发现相关归档引用，diff --check 通过。
+- 主项目完整回归：Windows、Python 3.13.7，322 passed（47.51s），无失败、无 SKIP。
+  本轮仅移除两项归档专属检查，主项目功能回归继续保留且全部通过。
+- 直接执行 README 的 scripts/check_env.py 命令，退出码 0、[PASS] Overall；
+  Python、四项核心依赖、当前工作区导入和 LE 1M/96 MHz/PRBS9/37-byte loopback
+  均通过，36096 samples 的 sync/CRC/PDU/bits 全部 PASS。
+- 全部非历史活动文件扫描无相关归档引用；README 相对链接和 VCS 上传清单路径检查
+  通过，未修改上传清单、DPI ABI、算法或参考数据。固定 BLE_1M.bwv 的 SHA-256
+  仍为 a2b4a7bb66e40a8623655af5fc589413eb699b25cc1051d9ba83b55134b9ce52。
+- 已检查 Git status、diff/stat 与 diff --check；未生成项目缓存文件或 artifacts，
+  用户既有删除和四项已暂存 MATLAB 大小写重命名保留。历史记录未改写，process.txt
+  内容未变，留待实际提交时追加。未 commit/push，也未进行真实 Python 3.8/Linux/VCS 验收。
+
+---
+
+# 一键环境与基础功能自检
+
+日期：2026-10-13。状态：用户 GO 后已完成脚本、README、TDD 与本地回归，未 commit/push。
+用户要求在 README 的运行环境下面说明如何快速检查，并新增 scripts/check_env.py，
+不依赖 pytest，检查 Python、核心依赖、BLEStudio 导入与基础 TX/RX，明确输出 PASS/FAIL。
+以下既有计划、执行记录和未完成项完整保留；本轮不自动 commit/push。
+
+## 1. 调研结论
+
+- scripts 当前没有环境自检入口；tests 使用 pytest，不能用它承担无 pytest 的首次自检。
+- pyproject.toml 声明 Python >=3.8，核心依赖为 NumPy、SciPy、Plotly、PyYAML；
+  importlib、importlib.metadata、sys、pathlib 等标准库足以完成导入、版本显示与路径检查，
+  无需新增 pytest/packaging 等运行依赖，也不引入 Python 3.11 才有的 tomllib。
+- 当前解释器为 Python 3.13.7，ble-studio 安装元数据与导入来源均对应当前工作区。
+  ble_studio/__init__.py 已导出所需 Packet、TX、RX 接口，不需修改核心包。
+- 已只读验证现有公开接口：LE 1M、96 MHz、PRBS9、37 bytes、channel 0、DTM
+  Access Address 0x71764129、不白化的理想单包，36096 samples；同步、CRC、完整 PDU
+  和空中 bits 比对全部通过。此检查不产生文件，不等于 Python 3.8/VCS/RF 合规验收。
+
+## 2. 修改范围与行为
+
+1. 新增 scripts/check_env.py，以标准库启动、延迟导入第三方库和 BLEStudio。
+   打印当前 Python 版本与 sys.executable，检查声明的最低版本 >=3.8；版本不足明确 FAIL。
+2. 逐项检查 numpy、scipy、plotly、yaml 的可导入性，显示实际版本与来源。缺包、
+   损坏安装或 DLL/ABI 导入异常均明确 FAIL，继续报告其他独立依赖，给出当前解释器的
+   pip install -e . 修复提示。不自动安装依赖、联网、改配置或修改 sys.path 掩盖安装问题。
+3. 检查 BLEStudio 导入，打印版本与实际来源，并核对是否为脚本所在的当前工作区，
+   防止误用别的 checkout。依赖或导入失败时，依赖它们的后续检查标为 SKIP，不能算 PASS。
+4. 使用上述已验证配置，在内存中完成 Packet -> TX -> 理想 RX；同时核对 success、
+   sync_found、crc_valid、完整 PDU 和 bits。任一失败或运行异常均 FAIL，保留错误类型、
+   原因与可操作提示。无信道损伤、无输出波形/HTML、无需 MATLAB/VCS/license。
+5. 各检查输出英文 [PASS]/[FAIL]，必要时 [SKIP] 并说明原因，最终输出整体 PASS/FAIL；
+   全部必需项通过返回 0，否则返回 1。运行不依赖 pytest，测试代码仍使用项目现有 pytest。
+6. README 在“运行环境”下新增“快速自检”：Windows/Linux 命令、先安装后检查的顺序、
+   成功标志、退出码、失败时的安装命令及检查边界；同步 scripts 目录用途。
+   核心依赖检查为导入可用性与实际版本显示，不宣称通用依赖约束解析；附可选的
+   python -m pip check 用于已安装依赖一致性核对。基础 PASS 不替代完整 pytest 或 VCS/RF 验收。
+
+本轮仅改 scripts/check_env.py、README.md、tests/tooling/test_check_env.py，按需补充
+现有 README 布局断言，并在本节记录执行结果。不修改 pyproject.toml、算法、配置、
+golden 或归档。不改变项目支持版本声明；Python 3.8 仍需真实解释器验证。
+
+## 3. TDD 与验收
+
+- 先添加针对性测试并运行 Red，再实现脚本与 README，确认 Green。
+- 覆盖真实 CLI 成功及退出码、阻断 pytest 后仍通过、Python 版本不足、四项核心依赖
+  缺失/导入异常、BLEStudio 缺失/来源不符，以及同步/CRC/PDU/bits 错误与 loopback 异常。
+  负例通过 mock/隔离子进程构造，不卸载或破坏用户环境。
+- 检查最低 Python 与核心依赖清单和 pyproject.toml 一致、README 命令与位置正确、
+  脚本保持 3.8 grammar、不生成波形/报告等产物。
+- 运行针对性和主项目完整 pytest，直接执行 README 自检命令；检查 Git diff/路径/链接，
+  清理本轮缓存与输出，追加本节执行记录。实际提交时才按提交时间更新 process.txt。
+
+## 4. 当前 TODO
+
+- [x] 调研依赖、安装和公开接口，验证计划使用的理想 loopback。
+- [x] 写明自检行为、文件范围、README 用法和 TDD 验收。
+- [x] 用户 GO。
+- [x] TDD Red -> 实现脚本与文档 -> 针对性 Green。
+- [x] 完整回归、直接运行、diff 检查、清理及执行记录。
+
+## 5. 执行与验收记录
+
+- 新增 scripts/check_env.py，标准库启动，按顺序检查 Python、四项核心依赖、
+  当前工作区 BLEStudio 导入与 LE 1M/96 MHz/PRBS9/37-byte 理想 loopback。
+  输出实际解释器、版本、来源和各项结果；失败保留错误类型/原因与修复提示，依赖项
+  未执行时输出 SKIP。整体成功返回 0，否则返回 1，不自动安装或改动环境。
+- README 的运行环境下已添加快速自检，包含 Windows/Linux 命令、前置安装、
+  PASS/FAIL/SKIP、退出码、失败处理与可选 pip check；目录表补充环境自检用途。
+- TDD Red：三个代表性 CLI/README 入口测试在实现前均按预期失败（3 failed，1.23s）。
+  实现后 22 项新增自检测试与 25 项既有布局测试全部通过（47 passed，8.23s）。
+- 负例覆盖四项缺包、ImportError/OSError/RuntimeError、缺失安装元数据、Python
+  版本不足、BLEStudio 缺失/来源不符、同步/CRC/PDU/bits 错误及 loopback 异常。
+  隔离子进程阻断 pytest 时自检仍通过；禁用 site-packages 时输出 FAIL/SKIP 与退出码 1，
+  无裸 traceback。未卸载用户包或改变全局环境。
+- 完整回归：Python 3.13.7，322 passed、2 skipped（57.39s），无失败。
+  全量回归期间 LogicAnalyzer 目录已不在工作区，两个既有可选静态归档检查因此跳过；
+  单独复核为 23 passed、2 skipped，原因均为 Optional static archive has been moved out
+  of BLEStudio。本轮没有移动/删除/恢复归档，也没有修改这些测试的跳过条件。
+- Windows README 自检命令已直接执行，目录变化前后均返回 0 与 [PASS] Overall；
+  36096 samples 的 sync/CRC/PDU/bits 全部 PASS。pip check 为 No broken requirements found。
+  新脚本 3.8 grammar 检查通过，但没有真实 Python 3.8/Linux/VCS 验收，不据此扩大声明。
+- 最终 diff、README 路径/链接检查通过；未生成项目缓存、波形或报告。核心算法、依赖
+  声明、golden 和旧开发记录未改动。未 commit/push，process.txt 留待实际提交时追加。
+
+---
+
+# 固定参考波形归位与 README 环境说明
+
+日期：2026-10-13。状态：用户 GO 后已完成本地迁移、文档更新与验证，未 commit/push。
+用户提出将 data 中的固定波形放进 reference，并要求 README 一开始写明最低 Python
+版本与核心依赖。以下既有整理记录和未完成项完整保留；本轮不自动 commit/push。
+
+## 1. 已核实事实
+
+- data/iq/BLE_1M.bwv 是固定外部解调参考，不是运行生成的结果；大小 1200656 bytes，
+  SHA-256：`a2b4a7bb66e40a8623655af5fc589413eb699b25cc1051d9ba83b55134b9ce52`。两个导入 YAML、分析脚本示例及正式 loopback test 引用它。
+  对应解调 testcase 本轮只读验证为 1 passed。
+- reference/vectors 当前有九份 MAT/TXT/JSON golden；增加此 BWV 后为十份固定参考文件。
+  现有目录测试硬编码九份，需要同步，不能只搬文件。
+- pyproject.toml 声明 requires-python >=3.8；核心依赖为 numpy>=1.20.0、scipy>=1.7.0、
+  plotly>=5.10.0、PyYAML==6.0.3。pytest/Matplotlib/Jupyter/nbformat 是可选开发依赖。
+- 现有二十份活动 Python 源文件通过 3.8 grammar check，但这不等于 Python 3.8
+  运行兼容性已通过。本地完整回归实测为 Python 3.13.7；IC Server 目标为 3.10，
+  真实 VCS 尚待服务器验收。不改变项目支持范围或依赖版本来迎合本地安装环境。
+
+## 2. 修改范围
+
+1. TDD：先将 loopback/两份输入配置指向新位置，更新目录回归为十份固定参考并断言
+   旧 data 路径不存在，运行针对性测试确认搬移前失败。
+2. 原样移动 data/iq/BLE_1M.bwv 到 reference/vectors/BLE_1M.bwv，核对大小与 SHA-256。
+   确认没有其他或隐藏文件后，只删除空 data/iq 和 data 目录。
+3. 同步 configs/waveforms/import_bwv.yaml、import_mat.yaml、
+   tests/core/test_loopback.py、tests/tooling/test_repository_layout.py 与
+   scripts/analyze_signal.py 的路径/使用示例；不改波形、信号参数或解调算法。
+4. README 标题后立即说明最低 Python 3.8（项目声明，未实测该版本）、已实测 3.13.7，
+   列出四项核心依赖、版本约束及用途，注明 pip install -e . 自动安装。
+   可选开发依赖与核心依赖分开；目录树移除 data，reference/vectors 说明包含外部 BWV。
+5. 针对性回归后运行主项目全量 pytest，检查 README 链接、活动旧路径引用、Git diff，
+   核对波形 hash，清理本轮缓存/输出，追加本节执行记录。
+
+兼容影响：手动使用旧 data/iq/BLE_1M.bwv 的外部命令需改用新路径，不保留重定向副本。
+不删除参考数据或测试源码，不更改 pyproject.toml、不新增依赖、不 commit/push。
+
+## 3. 当前 TODO
+
+- [x] 核实参考用途、调用方、目录约束、Python 声明及依赖。
+- [x] 写明迁移位置、文件范围、环境说明和兼容影响。
+- [x] 用户 GO。
+- [x] TDD Red、原样迁移、同步路径及 README 环境要求。
+- [x] 回归、hash/diff/路径核对、清理产物并补充执行记录。
+
+## 4. 执行与验收记录
+
+- TDD Red：5 failed、21 passed，失败仅为新路径不存在、旧 data 尚在及 README
+  尚无开头环境说明；实现后相同针对性回归为 26 passed（5.86s）。
+- 主项目完整回归：Python 3.13.7，302 passed（47.16s）。新增 README 环境 regression
+  从 pyproject.toml 提取最低 Python 与核心依赖约束，防止文档与安装声明不一致。
+- BWV 原样迁移至 reference/vectors/BLE_1M.bwv，1200656 bytes，迁移前后 SHA-256
+  均为本节记录值；Git 识别为 100% rename。确认无隐藏数据后仅删除空 data/iq、data。
+- 两份导入 YAML、loopback testcase、目录断言与分析脚本使用示例已同步；BWV 解调
+  success/sync/CRC 检查通过，活动源码/配置/文档无旧 data/iq 引用。
+- 现有九份 MAT/TXT/JSON 未改写；与原 Git 内容核对一致。其中 LE1M_8Msps.json
+  工作区既有 CRLF，而 Git blob 为 LF，按 Git 规则归一化后比对一致，不改写文件换行。
+- README 开头已区分项目声明 Python >=3.8、实测 Python 3.13.7，列出四项核心依赖
+  及用途，并区分可选开发依赖。目录说明统一将固定 BWV 归入 reference/vectors。
+- README 链接/路径与 Git diff --check 通过；本轮未生成需保留的缓存或 artifacts。
+  不改波形/算法/依赖，不自动提交；process.txt 留待用户要求 commit 时按实际提交时间追加。
+
+---
+
+# BLEStudio 全仓库整理与 LogicAnalyzer 静态归档计划
+
+计划日期：2026-10-12。用户于 2026-10-13 确认 GO，状态：本轮本地整理与验证完成，未 commit/push。
+用户已备份仓库并授权删除、移动和整理；另明确逻辑分析仪相关内容先集中到
+`LogicAnalyzer/`，选择「仅归档保存，不再随 BLEStudio 安装或默认运行」。
+本方案经 GO 后执行；本轮不自动 commit/push。以下既有计划、待开发项及历史记录保留。
+
+## 1. 目标与边界
+
+- 主项目聚焦 BLE Packet、TX/Channel/RX、IQ 导出、性能分析与 VCS TX checker。
+- 先完整静态归档逻辑分析仪，再整理其余目录；归档目录以后可整目录移出。
+- 配置、文档、规范/golden、外部输入与生成结果各有唯一归属。
+- README 使用教程与实际路径一致，给出完整目录树、用途和文件存放规则。
+- 不重构 BLE 核心包，不改变调制、解调、CRC、PRBS、FEC 或量化算法。
+- 不开发独立 LogicAnalyzer 应用、不迁移其 Python 包名、不保留主项目兼容壳。
+- 不新增依赖，不修改 Git history，不清理 `.git/`、当前 `venv/` 或用户工具配置 `.claude/`。
+
+## 2. 目标目录
+
+```text
+BLEStudio/
+├── ble_studio/                    BLE 核心 Python package，不再包含 logic_analyzer
+├── configs/waveforms/             单包波形、信道、外部 IQ 导入的 YAML
+├── examples/                      demo.py、benchmark.py 使用入口
+├── scripts/                       IQ、调制和 RF 的辅助分析/实验脚本
+├── sim/vcs/                       DAC monitor、DPI bridge、VCS smoke
+├── tests/
+│   ├── core/                      BLE 算法及波形导出回归
+│   ├── tooling/                   目录、配置、文档链接和辅助 CLI 回归
+│   └── native/                    CPython bridge smoke
+├── docs/
+│   ├── algorithms/                相关性、Eb/N0、GFSK 文档和 notebook
+│   ├── integration/vcs/           VCS 接入、AI 交接、上传清单
+│   └── development/               plan.md、research.md，保留历史与未完成项
+├── reference/
+│   ├── matlab/                    MATLAB golden 脚本与基础库
+│   ├── vectors/                   只读 MAT/TXT/JSON golden 向量
+│   └── specifications/            Core/RFPHY PDF
+├── data/iq/                       外部工具的 IQ 输入样例
+├── LogicAnalyzer/                 完整静态归档，可独立移出，不参与安装/默认测试
+├── artifacts/                     所有可再生产物，按需创建，Git ignore
+├── README.md                      安装、运行、目录与用途说明
+├── pyproject.toml                 唯一 Python 安装与依赖配置
+├── process.txt                    提交变更日志，历史不改
+└── .gitignore                     缓存、本地数据和输出忽略规则
+```
+
+`venv/`、`.git/`、`.claude/` 为本地环境/管理目录，保留但不作为项目交付内容。
+不为旧目录留重定向文件或兼容入口；README 明确本次路径及入口变化。
+
+## 3. 第一阶段：LogicAnalyzer 完整静态归档
+
+按原有相对路径加 `LogicAnalyzer/` 前缀移动，源文件内容保持原样：
+
+| 当前路径 | 归档路径 |
+|---|---|
+| `ble_studio/logic_analyzer/` | `LogicAnalyzer/ble_studio/logic_analyzer/` |
+| `configs/logic_analyzer/` | `LogicAnalyzer/configs/logic_analyzer/` |
+| `data/logic_analyzer/` | `LogicAnalyzer/data/logic_analyzer/` |
+| `tests/logic_analyzer/` | `LogicAnalyzer/tests/logic_analyzer/` |
+| `doc/logic_analyzer/` | `LogicAnalyzer/doc/logic_analyzer/` |
+| `doc/logic_analyzer_data_processing.md` | `LogicAnalyzer/doc/logic_analyzer_data_processing.md` |
+| `examples/config_import_hex.yaml` | `LogicAnalyzer/examples/config_import_hex.yaml` |
+| `utils/analyze_sampling_issues.py` | `LogicAnalyzer/utils/analyze_sampling_issues.py` |
+| `utils/logic_analyzer_bin2wave.py` | `LogicAnalyzer/utils/logic_analyzer_bin2wave.py` |
+| `utils/rssi_parser.py` | `LogicAnalyzer/utils/rssi_parser.py` |
+| `utils/bin_to_vcd.py` | `LogicAnalyzer/utils/bin_to_vcd.py` |
+| `artifacts/logic_analyzer/.gitkeep` | `LogicAnalyzer/artifacts/logic_analyzer/.gitkeep` |
+
+- 包含原本 Git ignored 的 `test.bin`、`rssi.bin`、`bk.kvdat`、`raw_data.kvdat`、
+  `quarantine/test3.bin`。本阶段不删除任何 capture，即使 bk/raw_data 已确认同 hash。
+- 不归档或保留 Python 缓存。源文件、配置、数据和 fixture 生成逐文件 SHA-256 清单，
+  搬移前后核对数量、相对路径、大小和 hash，不静默漏掉 ignored 数据。
+- 新增 `LogicAnalyzer/README.md` 与 `archive_manifest.json`，记录归档日期、原始
+  Git baseline `94801e4`、源/归档路径及还原条件。旧 imports/CLI 文档保持历史原样。
+- README 明确这是静态归档，不是可以 `pip install` 的独立应用；恢复需要匹配的
+  BLEStudio 核心。不得宣传归档后旧 `ble-la`/`python -m ble_studio.logic_analyzer` 可用。
+- 主 `pyproject.toml` 移除 `ble-la` entry point；默认 pytest 只收集主 `tests/`。
+  原 36 项逻辑分析仪 tests 归档而非删除，不再计入主项目回归数量。
+- 主 README 移除逻辑分析仪运行教程，只保留归档入口和状态说明；VCS 上传清单和
+  文档去掉逻辑分析仪包及其安装入口。BLE 核心/VCS 不依赖该模块，不加空实现。
+- Git ignore 同步覆盖归档内本地 capture/quarantine，不能因换路径而把原始大数据
+  意外纳入 Git。主项目安装和打包必须排除整个 `LogicAnalyzer/`。
+- 执行时确认四份 KVSET 原文件为 CRLF，而 Git 原 blob 为 LF；归档新增局部
+  `.gitattributes`（`* -text`）及 regression，保护全部原始字节，避免跨平台转换使
+  manifest hash 失效。保护规则随归档移出，不改变主项目的换行配置或任何归档源文件。
+
+## 4. 第二阶段：其余目录迁移
+
+### 4.1 波形配置
+
+`examples/` 只保留两个 `.py` 入口；16 份非逻辑分析仪 YAML 归入 `configs/waveforms/`：
+
+| 当前文件名 | 新文件名 |
+|---|---|
+| `config.yaml` | `default.yaml` |
+| `config_advertising.yaml` | `advertising.yaml` |
+| `config_bwv_import.yaml` | `import_bwv.yaml` |
+| `config_import_mat.yaml` | `import_mat.yaml` |
+| `config_channel_scan.yaml` | `channel_scan.yaml` |
+| `config_ideal.yaml` | `ideal.yaml` |
+| `config_low_snr.yaml` | `low_snr.yaml` |
+| `config_rayleigh.yaml` | `rayleigh.yaml` |
+| `config_rftest_1m_prbs9_96m.yaml` | `rftest_1m_prbs9_96m.yaml` |
+| `config_rftest_2m_prbs15.yaml` | `rftest_2m_prbs15.yaml` |
+| `config_rftest_df1.yaml` | `rftest_df1.yaml` |
+| `config_rftest_df2.yaml` | `rftest_df2.yaml` |
+| `config_rftest_pattern.yaml` | `rftest_pattern.yaml` |
+| `config_rftest_prbs9.yaml` | `rftest_prbs9.yaml` |
+| `config_rftest_s2_prbs9_96m.yaml` | `rftest_s2_prbs9_96m.yaml` |
+| `config_rftest_s8_prbs9_96m.yaml` | `rftest_s8_prbs9_96m.yaml` |
+
+保持各配置的信号参数、内容和现有区别，不凭名称相似删除 import 配置。
+只调整路径、使用注释和输出目录；配置中的相对 I/O 路径仍以仓库根 CWD 为基准，
+README 明确从仓库根执行。默认配置改为 `configs/waveforms/default.yaml`。
+
+### 4.2 辅助脚本
+
+- `utils/analyze_signal.py` → `scripts/analyze_signal.py`。
+- `utils/compare_iq.py` → `scripts/compare_iq.py`。
+- `utils/modulator_analysis.py` → `scripts/modulator_analysis.py`。
+- `utils/rf_metrics_test.py` → `scripts/rf_metrics_analysis.py`。
+- `utils/visualizer_rf_test.py` → `scripts/rf_visualization.py`。
+- `utils/snr_sweep.py` → `scripts/snr_sweep.py`。
+
+它们是辅助分析/实验，不是正式 pytest testcase 或经过校准的 RF signoff。
+不顺带重写 RF 算法。`compare_iq` 的 CLI 改为明确接收 TX/RX 两个文件路径，
+复用已有比较函数，支持描述性新文件名，不再只查找 `results/iq_tx.*`。
+无文件、空文件或样点数不等必须明确失败，不能打印空报告并以 0 退出。
+
+### 4.3 文档、规范和 golden
+
+- `doc/correlation_explanation.md`、`ebn0_vs_snr.md`、`gfsk_phase_pulse.md`、
+  `gfsk_phase_pulse.ipynb` → `docs/algorithms/`。
+- `doc/vcs_tx_checker.md`、`ic_server_ai_handoff.md`、`ic_server_integration.md`、
+  `ic_server_upload_files.txt` → `docs/integration/vcs/`。
+- 根 `plan.md`、`research.md` → `docs/development/`，完整保留全部历史/未完成项，
+  更新当前入口；不对历史记录中的原始路径进行全局替换。
+- 两份 PDF → `reference/specifications/`；`reference/Matlab/` → `reference/matlab/`；
+  `reference/BLE_PKT/` 的三组 MAT/TXT/JSON → `reference/vectors/`。
+- MATLAB 只修改目录相关的默认向量路径和相关注释；两份基础库不改算法。
+  golden 数据九个文件、PDF、notebook 迁移前后逐文件 hash 一致，不重新生成 golden。
+- 同步修正测试中的 golden/config 路径、现行文档链接及 VCS 上传清单；
+  `sim/vcs/` 与其 HDL/C++ 接口不变。Windows 大小写目录迁移使用可核验中间路径。
+
+## 5. 删除清单与可再生输出规则
+
+经 GO 后删除：
+
+1. 根 `xclip.rpm`：非 BLE 项目文件，无代码依赖。
+2. `requirements.txt`：与 `pyproject.toml` 重复且包含未使用 pdoc；统一用 `pip install -e .`。
+3. `utils/iq_corr_test.py`：其 IQ roundtrip/相关性检查先补入正式 pytest，再删除顶层执行脚本。
+4. `reference/BLE_PKT/星座图.png`、`眼图.png`：无引用的波形截图，不是 golden 数值向量。
+5. 当前 `artifacts/` 的交接包、解包副本、smoke fixture、编译产物和日志；
+   先完成其中逻辑分析仪占位文件归档，再清理其余内容。旧包会随本次清理删除，
+   后续使用新清单重新打包，不保留或冒充更新旧交接快照。
+6. `.pytest_cache/` 和工作树内 `__pycache__/`、`.pyc`，排除当前 venv 与 `.git`。
+7. 迁移后空的 `doc/`、`utils/` 及其他旧目录。
+
+统一 Demo 默认输出为 `artifacts/waveforms/default/`，其余旧 YAML 输出按配置命名
+写入 `artifacts/waveforms/`；已有 96 MHz 描述性目录保持不变。
+`ReportGenerator` 未显式指定 output_dir 时改为 `artifacts/reports/`；显式路径继续尊重。
+VCS 构建、波形、JSON、日志和交接包统一按子目录写入 `artifacts/`，不自动清理用户自选目录。
+当前 `venv/` 继续用于验证；其依赖和解释器不移动、不卸载。
+
+## 6. TDD、兼容影响及验收
+
+先写失败用例，再迁移/修正：
+
+- `tests/tooling/test_repository_layout.py`：新默认配置/16 YAML 存在、输出路径归属、
+  README 相对链接、VCS manifest 路径及无 LogicAnalyzer 依赖、安装发现范围。
+- 主项目在不可见 LogicAnalyzer 的情况下 import/demo/checker 正常；
+  核对 pyproject 无旧入口，pytest 不默认收集归档 tests。
+- `tests/core/test_iq_io.py`：补正式 IQ TXT roundtrip 与 I/Q 相关性断言，输出仅 tmp_path。
+- `tests/tooling/test_analysis_tools.py`：compare_iq 明确路径的 TXT/MAT 正例及无文件、
+  空数据、长度不等负例；不运行耗时性能 sweep 来代替算法回归。
+- `tests/core/test_demo.py`：默认输出目录正确，配置缺失必须抛明确异常，
+  不允许迁移后缺失路径被 `load_config()` 静默当作空配置而生成另一种默认信号。
+- 保留全部 264 项现有 core 回归与 MATLAB golden；36 项 LA tests 完整归档，
+  以归档 manifest/hash 校验完整性，不假装归档模块仍是活动安装或默认测试的一部分。
+- 运行新针对性测试、主项目全量 pytest、Python compile、Bash syntax、README 代表性
+  1M/S2/S8 生成命令与 VCS fixture 生成；产物验证后清理，不残留到源码/配置目录。
+- VCS manifest 无缺失/重复，按新布局的独立解包针对性测试可运行；真实 VCS
+  仍待 CentOS 7/VCS 2025/Python 3.10 服务器验收，不扩大为本轮 blocker。
+- 检查完整 diff、git diff --stat、空白错误和旧路径引用；历史记录及归档文件中的
+  原路径允许保留。所有 Windows 递归删除/移动均先核验绝对目标在 workspace 内。
+
+公开变化：旧逻辑分析仪模块/CLI 不再属于 BLEStudio；示例配置、文档、golden 路径变化；
+默认输出由 results 改为 artifacts；compare_iq 脚本 CLI 改为明确文件路径。
+BLE 核心 API、波形文件名、JSON schema、现有 IQ 数值和 DPI ABI 不变。
+
+## 7. 当前 TODO
+
+- [x] 全目录、tracked/ignored 文件、调用关系及现有测试盘点。
+- [x] 用户确认 LogicAnalyzer 仅静态归档，不再安装/默认运行。
+- [x] 核实 264 项 core + 36 项 LA 测试，核对核心无 LA 依赖。
+- [x] 写明目标结构、归档映射、删除清单、兼容影响与验收方案。
+- [x] 用户 GO（2026-10-13）。
+- [x] TDD Red：新结构、路径、归档隔离、IQ roundtrip 与分析 CLI 测试（35 failed、13 passed）。
+- [x] LogicAnalyzer 搬移与 52 个文件完整性 hash 核验，移除主安装/测试/交接依赖。
+- [x] 其余目录、默认路径、脚本入口和文档迁移。
+- [x] README 完整目录树、用途与实际使用教程。
+- [x] 归档的跨平台 Git 换行保护（先 Red，后补局部 .gitattributes）。
+- [x] 主项目回归、独立交接验证、最终 diff/路径/hash 检查与本地产物清理。
+- [x] 更新本计划的执行记录；本轮未提交，process.txt 保持不变，另行授权提交时再按实际时间追加。
+
+## 8. 执行记录（2026-10-13）
+
+- 静态归档完成：52 个原文件（47 tracked、5 ignored 本地数据）大小及 SHA-256 全部
+  匹配。未删除任何 capture；新说明、manifest 与局部 .gitattributes 随归档保存。
+  四份 KVSET 原本为 CRLF，Git 历史 blob 为 LF；归档保护保留工作区原始字节，
+  不是重写 profile。Git check-attr 确认子目录 text=unset，并将 CRLF 识别为合法换行。
+- 16 份 YAML 迁入 configs/waveforms；用 YAML 结构对比原 Git 文件，除 output.dir
+  外所有参数一致。既有三份 96 MHz 配置保持原输出目录，其他默认输出统一到 artifacts。
+- 九份 golden 数据、两份 PDF、notebook、两份 MATLAB 基础库、外部 BWV、七份 VCS
+  文件和十一份核心 Python 文件共 33 项，迁移前后最终 hash 全部一致。
+  MATLAB 仅改两个向量目录引用，不改变基础库和数值算法。
+- plan/research 历史部分与原 Git 文件逐字节相同，新增记录仅位于现行任务前部。
+  README 已更新安装、四类 Demo、目录用途、文件归属及路径/CLI 兼容变化。
+- TDD：初始 Red 为 35 failed、13 passed；路径/CLI 针对性 Green 为 48 passed。
+  额外换行保护 regression 先因缺失 .gitattributes 失败，再补规则通过。
+  最终 `python -m pytest -q -p no:cacheprovider --tb=short` 为 **301 passed in 39.89s**：
+  保留原 264 项 core，新增 37 项回归；原 36 项 LA 测试完整归档，不再默认收集。
+- README 默认 Demo、96 MHz 1M/S2/S8 全部运行成功，RX CRC/PDU match 均通过。
+  后三者样点数为 36096/101184/296448；六份 TX/RX JSON 中的文件大小与 SHA-256
+  全部核对通过。显式 TXT/MAT 比较均报告 TX/RX identical=True。
+  现有 RF 显示不作为合规验收；本轮未增加 ΔF1/ΔF2 能力。
+- 在现有 Python 3.13.7 venv 执行 `pip install --no-deps -e .` 和
+  `pip wheel --no-deps . --wheel-dir artifacts/reorganization/wheels` 均成功。
+  使用项目已声明的隔离构建依赖，未新增或升级运行依赖；wheel 共 16 个条目，
+  不含 LogicAnalyzer/tests/examples 或旧 CLI entry point，已安装元数据无 ble-la。
+- VCS 新清单为 38 文件，无重复/缺失/LA 依赖。独立 tar 打包、解包后 38 个文件 hash
+  全匹配，实际 import 指向解包目录；包内 **196 passed in 16.67s**，fixture 重新生成成功。
+  独立解包使用相同本地解释器与现有第三方依赖，不冒充服务器安装验证。
+- Python compileall、Bash `-n sim/vcs/run_smoke.sh`、README 链接/布局、默认输出和
+  归档不可见时核心 import/demo/checker 均通过；完整 diff、staged case-only rename、
+  Git whitespace 与活动旧路径引用检查完成。历史/归档中的原路径刻意保留。
+- 已删除 requirements、旧 IQ 顶层测试、两张截图、旧空目录、全部 artifacts（含旧交接包
+  和本轮验证产物）、build、egg-info、pytest 缓存及工作树 Python 缓存。
+  xclip.rpm 执行前已不存在；.git、venv、.claude 保留。artifacts 后续按需生成。
+- 本轮不 commit/push，process.txt 不追加虚构提交记录。真实
+  **CentOS 7 / VCS 2025 / Python 3.10 smoke 仍待服务器验收**；原有待开发项保留在下文。
+
+---
+
+# LE Coded S=2/S=8 TX/RX 实施计划
+
+日期：2026-10-12。状态：本地实现与 TDD 回归完成；真实服务器 VCS smoke 待验收。
+依据及现有调用关系见 research.md 的「LE Coded S=2/S=8 专项调研」。
+以下为当前任务，后面的既有计划及其未完成项全部保留。
+
+## 1. 本轮交付范围
+
+实现真实的 LE Coded S=2/S=8 Packet、理想 GFSK TX/RX、整包 checker，
+并接通现有波形导出、逻辑分析仪 RX 和 VCS 接口。按 TDD 顺序推进：
+
+1. Core 官方 FEC、pattern mapper 和完整发送符号向量。
+2. 分段 TX/RX、CI/TERM 处理、同步/CRC/完整 PDU 比对。
+3. 96 MHz DTM 波形、JSON/MEM 导出、checker 和接入测试。
+
+保留 LE1M/LE2M 的现有算法与结果，不新增第三方依赖，不依赖 MATLAB/license。
+使用现有枚举：LE_CODED_S8=3、LE_CODED_S2=4，不改变编号或 DPI 函数签名。
+继续要求整数 SPS；SPS 指空中符号的采样数，不是信息 bit 的采样数。
+
+本轮不做 RF ΔF1/ΔF2 校正、RF signoff、Coded 灵敏度/PER 曲线、streaming RX、
+连接状态机、extended advertising 流程、Packet interval 或最小运行包解耦。
+这些未完成需求不取消。已有性能模块是 legacy advertising 路径，Coded 在该入口
+继续明确报未支持，不能生成错误数据或把原始符号 BER 当作 FEC 后 BER。
+独立 Coded 模块的纠错测试属于本轮；整个平台的噪声性能验收不属于本轮。
+
+## 2. 编码和 Packet/TX 方案
+
+新增内部模块 `ble_studio/coded_phy.py`，仅包含 Coded 帧常量、卷积编码、pattern
+映射/软度量、Viterbi 和帧长度计算。它不反向 import packet，避免循环依赖。
+不建立新的公共框架，也不复制现有 CRC、PRBS、whitening 或 GFSK 实现。
+
+- Packet 校验接受四种已支持 PHY；更新所有 `_validate_uncoded_phy` 调用方，
+  不简单删除检查让 Coded 落入原来的 LE1M 拼帧。
+- `_generate_preamble` 为 Coded 生成专用前导；uncoded 生成逻辑保持原样。
+- `BLEPacket.generate()` 和 `RFTestPacket.generate()` 的 Coded 分支复用现有
+  PDU/CRC/whitening，然后组装两个 FEC block、CI、TERM 和 pattern mapping。
+- 两个 block 分开处理，正确处理初始化/终态和 TERM，不对白化后的空中符号再次
+  编码，也不把整包统一按 S2 或 S8 编码。
+- `generate()` 仍返回一维 uint8 的 0/1 空中符号序列；`generate_bytes()` 继续
+  是该序列按现有规则打包，不改成未编码 PDU，文档注明 Coded 含编码符号。
+- Modulator 对 Coded 使用对应空中符号率，直接调制 Packet 已编码的符号，
+  不在 Modulator 内做第二次 FEC。原有相位脉冲和 LE1M/LE2M 数值结果不改。
+- DTM 默认 whitening 关闭；普通 data packet 在 FEC 之前使用现有 whitening。
+
+## 3. RX 方案与接口兼容
+
+保留 uncoded 解调主路径，新增 Coded 分支，复用现有 FM/匹配滤波/定时工具。
+新增的软判决 Viterbi 用 NumPy 实现，不引入通信工具库。
+
+1. 以 Coded preamble 和编码后的已配置 AA 做同步，不沿用 uncoded AA 模板。
+   Coded 频偏估计使用同步得到的平衡 preamble，不能直接依赖整包相位均值，否则
+   长固定 payload 的码型偏置可能被误作 CFO；只调整 Coded 分支。
+2. 对第一 block 解映射/解码，核对 AA、CI 和终态；CI 必须是合法值，且与配置
+   期望的 S2/S8 一致。首版不自动切换到另一 PHY 掩盖 testcase 配置错误。
+3. 按实际 CI 解码第二 block；先解出 header，并按配置去白化后读取长度。部分
+   header 解码不能假定已到 TERM/零终态；完整 block 再按实际包长和终态解码，
+   复核 header。严格截取本包 PDU/CRC/TERM，不把尾部零、下一包或未编码样点
+   解释为本包数据。
+4. FEC 解码后按配置去白化，复用现有 CRC 和 PDU 解析。同步、FEC/字段、长度、
+   CRC 或内容检查失败均不得 PASS；可纠正的信道错误应正确恢复，不能把任意
+   单 bit 损伤都要求判 FAIL。
+5. 不可恢复、截断、非法 CI 和 PHY/CI 不符返回明确诊断，不吞异常、不理想 TX 回退。
+
+`DemodulationResult.bits` 保持原始空中符号判决含义，不悄悄改成 FEC 后信息 bits。
+PDU 放在已有 `pdu` 字段。为准确边界和诊断，在 dataclass 尾部增加有默认值的
+`packet_start_sample`、`packet_sample_count`、`failure_reason`；原字段顺序不变，
+既有构造/读取方式继续兼容。检查 performance、逻辑分析仪、Demo、checker 等调用方。
+
+`find_packets()` 新增 Coded 路径，使用包起点/完整包长推进，不能沿用固定 0.5 ms
+窗口或用解码后信息 bit 数推算样点。测试前导空白、长包、相邻包和结尾包。
+uncoded 多包搜索行为在本轮不主动重构。
+
+## 4. checker、VCS 与已有入口
+
+- `tx_checker.py` 按 PHY 计算正确的最短样点数，透传 RX 的 Coded 失败诊断，
+  成功条件仍为 sync + CRC + 完整 PDU match。既有 JSON 字段与 DPI 签名不变。
+- `ble_python_dpi_pkg.sv` 添加 Coded 的显式常量，与 Python 枚举一致；C++ bridge
+  保持现有传参 ABI，不另开 subprocess 或逐样点调用。
+- monitor 默认 `MAX_SAMPLES` 调至 2097152，覆盖 96 MHz、255-byte S8 单包并保持
+  有界；用户显式设置较小值时仍如实报超限，不自动截断。
+- smoke TB buffer 至少覆盖 37-byte S8；同步调整卡高测试和 watchdog，不能因正常
+  长包改变就使原来的超限/timeout 负例失效。沿用 HDL coding-style 的验证代码规范。
+- fixture generator、SV smoke 和原生 bridge smoke 增加 S2/S8 正常包、连续不同
+  模式、错误 PDU/CRC 和 CI/配置不符；原 11 个场景不能删除。
+- Demo 添加两个 96 MHz/PRBS9/37-byte 配置；沿用 LE500K/LE125K 命名及现有 TXT、
+  MAT、MEM、pretty JSON。metadata 区分信息长度与空中符号数量，既有 schema/version
+  和 LE1M/LE2M 字段不改；必要的新字段仅追加并测试。
+- Demo 的 legacy advertising+Coded 明确拒绝；不把 LE1M 的 ADV_IND 交给 Coded
+  Modulator 伪装成有效 Coded packet。普通 data packet 的 PHY 路径单独验收。
+- Demo/report 对 Coded 明确显示 RF `NOT_EVALUATED`，不调用当前 uncoded 区域算法
+  给出错误 ΔF1/ΔF2 或频谱合规 PASS。图表仍可显示，但不宣称 RF 测试已完成。
+- 逻辑分析仪 RX 保留整数 SPS 重采样方式，去掉“未实现 Coded”旧提示，补充 S2/S8
+  定点 I/Q 验证。已有非 Coded 行为保持不变。
+- performance 在 Coded 入口保留明确未支持提示与测试，后续单独定义 FEC 前/后 BER
+  和 PER 激励；不静默继续使用 legacy LE1M 广播包。
+
+## 5. TDD 验收矩阵
+
+### A. Red：独立规范向量
+
+新增 `tests/core/fixtures/le_coded_core_6_2.json`，记录 Core 6.2 的版本、章节、
+输入和固定输出；不能由待测编码器现场生成 expected。不需要 MATLAB Coded IQ。
+新增 `tests/core/test_coded_phy.py`：
+
+- Core Part C §2.1 的参考信息包和 §2.2 的 block1/block2 FEC 输入输出逐 bit 相等，含 TERM。
+- §2.3/2.4 的 S8 pattern 映射及 S2 不映射、完整发送序列逐符号相等。
+- 解码官方符号向量还原输入；独立接收路径不能调用 TX 重新生成自身期望值。
+- 先写失败测试，再实现编码/解映射/Viterbi。验证 0/1 输入、长度、初态/终态、
+  可纠正损伤、截断和保留 CI，禁止只测 encode/decode 自我闭环。
+
+### B. Packet 与理想 I/Q loopback
+
+新增 `tests/core/test_coded_loopback.py`，替换旧的两项 Coded 拒绝测试，保留非法
+PHY/非整数 SPS 的拒绝测试：
+
+- S2/S8，8/96 MHz；DTM PRBS9/37 bytes 的完整 PDU、CRC 和同步。
+- payload 0、1、37、255 bytes；PRBS15、固定 pattern（含全 0/全 1）和任意 data PDU。
+- whitening on/off、不同 channel、自定义 AA/CRCInit。
+- 白化范围/顺序、两个 FEC block 边界和样点数断言。
+- 前后零区、非整符号采样偏移、common phase rotation、正幅度缩放。
+- 错误 CRC、错误 expected PDU、PHY/CI 不符、截断和无信号不能误 PASS。
+- 错误 CRC fixture 在 FEC 之前破坏 CRC，再编码发送；不能把“翻转末尾空中符号”
+  当作一定会 CRC 失败，因为接收端可能正确纠错。可纠正损伤另设正例。
+- `find_packets` 长包和连续多包，不因 0.5 ms 窗口漏掉 Coded。
+
+### C. 平台与集成
+
+- checker 同步/CRC/PDU 各 gate、重复不同模式和 JSON 信息正确。
+- 96 MHz 两种新配置能导出 MAT/TXT/MEM 和可读 sidecar，实际样点数与包长一致。
+- Demo/report 不展示 Coded RF PASS；legacy advertising/performance 明确拒绝。
+- 逻辑分析仪 RX 的量化 I/Q 与重采样验证。
+- Python 针对性测试、原有完整回归、Python compile、Bash syntax、diff 检查。
+- 原生 bridge smoke；有实际 VCS 时执行真实 SV/C++ smoke。没有 VCS 时记录待验收，
+  不用原生/Verilator 结果代替实际 VCS 通过。
+
+## 6. 预计改动文件
+
+新增：`ble_studio/coded_phy.py`、两份 Coded 测试、Core JSON fixture，以及
+`examples/config_rftest_s2_prbs9_96m.yaml`、`examples/config_rftest_s8_prbs9_96m.yaml`。
+
+修改：`ble_studio/packet.py`、`modulator.py`、`demodulator.py`、`tx_checker.py`、
+`performance.py`、`report.py`、`logic_analyzer/validation.py`、`examples/demo.py`，
+以及对应 loopback/checker/performance/metadata/Demo/逻辑分析仪测试。
+
+VCS：`ble_python_dpi_pkg.sv`、`ble_tx_monitor.sv`、`tb_ble_tx_monitor.sv`、
+`generate_fixture.py`、`run_smoke.sh`、`tests/native/tx_checker_bridge_smoke.cpp`。
+共享 C++ header/bridge 只有实际验证发现必要兼容问题时才改，并先说明证据。
+
+文档：README、VCS 接入/AI 交接/上传清单、research/plan；清单需包含新增 codec。
+重新打包前核验全部依赖，不删除或冒充覆盖旧的 20261009 交接快照。
+不改 MATLAB golden、基础量化库或无关用户文件，不引入新的外部依赖。
+
+## 7. 当前 TODO 与验证基线
+
+- [x] 核对项目规则、调用关系、已有修改和测试。
+- [x] 核对 Core 6.2 编码、帧格式与独立 sample data。
+- [x] 基线完整回归：2026-10-12 本机 Python 3.13.7，126 passed in 9.64s。
+- [x] 编写 research/plan，评估 ABI、bit 含义和已有入口。
+- [x] 用户确认 GO。
+- [x] 固定规范向量与 Red 测试。
+- [x] 编码、TX、分段 RX 与 Green 测试。
+- [x] checker、导出/报告、逻辑分析仪与 VCS 接入。
+- [x] 短包→长包、不同 sample phase 的边界 regression；本包前导局部定时细化。
+- [x] 1/2/3/16 SPS 的附加接收回归；低 SPS 边界外软观测按 erasure 处理。
+- [x] 针对性/完整回归、native smoke、diff 与文档核对。
+- [x] 新日期交接包的 manifest/hash 与独立解包测试。
+- [ ] 真实 CentOS 7/VCS 2025/Python 3.10 smoke（依赖服务器环境）。
+
+用户于 2026-10-12 追加授权 commit/push；按实际提交时间追加 process.txt，
+提交范围包含此前未提交的 checker/VCS 交接功能和本轮 S2/S8，不包含生成产物或 xclip.rpm。
+如实现需要新依赖、改变既有接口语义或扩大到 RF/性能算法，停止并重新确认计划。
+
+## 8. 本轮执行结果（2026-10-12）
+
+- TDD：codec 导入失败 Red → 26 项官方 FEC/mapper/完整 air vector Green；
+  Packet/RX、checker 诊断、平台导出/报告和 VCS fixture 分别先验证失败再实现。
+- 最终全量：本机 Python 3.13.7，`venv/Scripts/python.exe -m pytest -q -p no:cacheprovider`，
+  **300 passed in 39.30s**（提交前再次回归）。无失败或跳过；uncoded/MATLAB golden 回归保留。
+- Coded/Core/loopback/checker/VCS fixture 为 196 项针对性测试；包含 1/2/3/16 SPS
+  附加回归、CRC 在 FEC 前注入、保留 CI、PHY/CI 不符、截断、纯载波与无信号。
+- 多包 sample-phase 额外 sweep：S2/S8、4 种 leading offset、8 种 gap，共 64 项
+  均恢复两包及精确边界。半符号 phase mismatch 已保存 regression；初始同步改在
+  sample 域，后续只用本包前导确定 symbol clock/CFO，不让长后包控制前包定时。
+- `compileall`、Bash `-n`、`git diff --check` 通过；未新增依赖或更改 DPI ABI。
+- native bridge：GCC 15.2.0，C++11/Wall/Wextra/Werror 编译通过；真实嵌入本机
+  CPython 3.13.7，S2/S8 正确包、CRC/PDU/CI 负例、异常恢复与回到 uncoded 均通过。
+  非法 hex 测试输出 traceback 是预期负例，结束为 `NATIVE_BRIDGE_SMOKE_PASS`。
+- native 记录：`artifacts/vcs_tx_checker/native_coded_20261012_104505/`。
+- Verilator 5.040 仅做 `--lint-only --timing`：无错误，仍有 34 个 BLKSEQ 和 10 个
+  clocking-input UNDRIVEN 警告；不是 clean lint、SV 功能仿真或 VCS 验收。
+- VCS smoke 保留原 11 个场景并新增 8 个 Coded 场景，共 19 项待实际服务器执行。
+- monitor 默认 MAX_SAMPLES=2097152；smoke TB=327680、watchdog=10ms。
+- 两份 96 MHz/PRBS9/37-byte 配置导出 MAT/TXT/MEM/pretty JSON 并核验文件 hash、
+  row/sample count；Coded RF 仅 `NOT_EVALUATED`，不调用 uncoded RF 算法。
+- 用户追加授权 commit/push，process.txt 按实际提交记录追加；旧 20261009 archive 保留。
+- 交接 manifest 共 50 个文件，无缺失/重复；preflight 独立解包核对全部 SHA-256，
+  使用解包目录实际 package 完成 **196 passed in 15.50s**（含 fixture 重生成）。
+  打包使用新日期 `artifacts/ic_server_handoff/BLEStudio_IC_Server_20261012.tar.gz`；
+  不包含 Windows 环境、生成波形、原生二进制或用户无关的 xclip.rpm。
+
+---
+
+# VCS DAC TX 整包解调接入计划
+
+状态：本地实现与验证完成，服务器 VCS smoke 待验证（2026-10-09）
+
+交接补充（2026-10-09）：用户要求提供上传清单、服务器 AI 交接文档和集成/工作说明。
+按精确 manifest 打包完整 Python 源码、VCS 组件和针对性测试；不包含 Windows
+环境、可再生产物和无关文件。本轮只补充交接材料，不改 RX/monitor 算法。
+
+- [x] 核对 package 导入、安装依赖和服务器接入条件。
+- [x] 编写上传清单、AI 交接文档及集成/工作说明。
+- [x] 验证清单、文档链接、压缩包内容和解包后的针对性测试。
+- [x] 准备可上传的压缩包和文档入口。
+
+交接验证结果：manifest 共 41 个文件，包含完整 24 个 Python package 源文件，
+文档内部链接与 Bash LF 检查通过；压缩包条目与 manifest 完全一致，解包文件
+SHA256 一致。独立解包目录 33 项 checker 测试和 fixture 生成通过。
+额外离线 wheel 构建未完成，原因是本机 venv 缺少 setuptools/wheel，未安装新工具。
+实际服务器安装、VCS smoke 和 DUT 绑定仍待 IC Server AI 执行。
+
+## 1. 目标和环境
+
+将现有 RX 封装成独立 TX checker，在 DAC 一包输出结束后通过 DPI 调用 Python，
+检查同步、CRC、完整 PDU，并把结果返回 SV scoreboard。
+
+用户已确认：CentOS 7、VCS 2025、Python 3.10、96 MHz、两路有符号 `real`
+DAC 输出，数据有效信号 `tx_dfe_en`；接受先实现整包解调。
+
+```text
+DAC real I/Q -> SV monitor -> DPI-C/C++ -> CPython 3.10 -> BLEDemodulator
+                                                        |
+SV scoreboard <- 状态与错误原因 <------------------------+
+```
+
+暂按一个连续的 `tx_dfe_en` 有效区间对应一整包设计，实际接入时必须确认。
+若 enable 跨越多包或存在包内间断，需要另接包边界信号。DAC clock/IQ 层级名
+未提供，使用通用 monitor 端口绑定，不猜测实际层级。
+
+## 2. Python checker
+
+新增 `ble_studio/tx_checker.py`，复用 `BLEDemodulator`、`DemodulatorConfig`：
+
+- 输入两路 real 数组、采样率、PHY、Access Address、channel、whitening、CRCInit，
+  以及 case 提供的完整 expected PDU（Header + Payload，不包含 CRC）。
+- 校验一维、等长、非空、finite、采样率和支持的 PHY/integer SPS；组合为
+  `complex128`，不量化、不独立归一化 I/Q、不自动交换通道或修正极性。
+- 直接调用 RX，不经过 Demo、信道或理想 TX 回退；预期 PDU 必须来自 case，不能
+  用刚收到的数据生成自己的期望值。
+- 输出 sample count、采样率、sync、CRC、PDU match、received/expected PDU、
+  `passed` 和 failure reason；配置错误抛出异常，数据不符返回 FAIL。
+- 可选每包诊断 JSON 复用已有 `write_pretty_json()`，独立文件名避免覆盖。
+
+通过条件：输入有效 AND sync AND CRC AND 完整 PDU match。
+当前 RX 同步采用容错相关，结果中的 Access Address 来自配置，不宣称为严格 AA 解码。
+
+## 3. DPI bridge
+
+新增 `sim/vcs/ble_python_dpi.cpp`、`sim/vcs/ble_python_dpi_pkg.sv`：
+
+- SV queue 转 dynamic array，经 `input real ...[]` 传入 DPI；C/C++ 使用 VCS
+  `svdpi.h`、生成的 prototype 和 open-array 元素访问函数读取 double。
+  不假定连续存储，不硬编码 simulator ABI。
+- 每进程初始化 Python 一次，缓存 checker callable，每包调用一次；使用正确的
+  引用计数和 interpreter/GIL 生命周期，不逐样点跨语言调用或每包重启解释器。
+- 使用同一 Python 3.10 安装的 headers、embedding 链接参数和 runtime library；
+  配置嵌入解释器的 module path/venv，确认 BLEStudio、NumPy、SciPy 均能导入。
+  仅在 shell 激活 venv 不能替代嵌入环境验证。
+- 第一版使用 Python C API 传 real 列表，由已有 NumPy 转数组，不新增依赖。
+- Python 异常保留 traceback，返回 bridge error 并导致 case FAIL，不吞异常。
+- 同步 DPI function 消耗 wall-clock 时间，不执行仿真延时、SV 回调或后台线程交互。
+- 检查解释器是否已被其它验证组件初始化，明确 ownership，不关闭其它组件的解释器。
+
+## 4. SV monitor
+
+新增 `sim/vcs/ble_tx_monitor.sv`，按 HDL coding-style skill 放在验证目录 `sim/`：
+
+- 输入 DAC sample clock、复位、`tx_dfe_en`、real I/Q 和 case 检查配置。
+- 使用明确的 clocking/sampling region 避免 DUT NBA 竞争；提供 sampling skew
+  配置，实际绑定时确认 DAC 更新边沿，不能默认加一个任意 delay。
+- 有效区间开始时清空 buffer 并锁存协议配置/expected PDU；有效的每个周期
+  收集一组 I/Q；区间结束同步检查并输出 checked pulse、packet count 和结果。
+- enable X/Z、复位打断有效包、buffer 超限明确报错；real NaN/Infinity 由
+  checker 校验，不把 real 当四态逻辑处理。
+- 提供 case 显式完成检查和 timeout 接口，缺包或 enable 卡高不能默认通过；
+  不在 SV final 块中执行复杂 Python 调用。
+- 最后样点与 enable 的边界按 DAC 有效语义验证，不默认增加 tail samples。
+- 仅在 DAC 时钟域采集，不新增 CDC；异步控制接入需单独确认时序。
+
+## 5. TDD 与验证
+
+先新增 `tests/core/test_tx_checker.py`，随后实现 checker：
+
+1. 96 MHz/LE1M/PRBS9/37 bytes real IQ：sync、CRC、完整 PDU match。
+2. LE2M、whitening、custom AA/CRCInit 的正确包。
+3. 正确 CRC 但 expected PDU 错误时 FAIL；故意发送错误 CRC 时 FAIL。
+4. 空输入、不等长、NaN/Infinity、全零、非法采样率有明确错误或失败。
+5. 前后零区、正幅度缩放、common phase rotation 不改变正确数据结果。
+6. 重复检查不同配置的数据包不串包，不保留上一包结果。
+
+新增 `sim/vcs/tb_ble_tx_monitor.sv`、`sim/vcs/run_smoke.sh`：
+
+- 从 fixture 驱动 real IQ 和 enable，编译/运行真实 DPI bridge。
+- 正确包 PASS，wrong expected PDU/CRC FAIL，连续两包正确计数。
+- 验证首次/末次样点、采样调度、复位打断、enable X、缺包和卡高。
+- Python import/配置失败让 smoke 非零退出，保留诊断。
+- build/log/JSON 输出到 `artifacts/vcs_tx_checker/`；不递归清理用户目录，
+  不修改服务器软件安装，复用当前依赖。
+
+本机运行 Python 针对性测试、完整回归和 diff 检查。VCS smoke 必须在实际
+CentOS 7/VCS 2025/Python 3.10 环境执行；本机没有 VCS，未验证部分保留待验证，
+不能用 Python 测试或 C++ 语法检查替代 VCS 联调。
+
+## 6. 文件和范围
+
+新增：上述 checker/test、SV pkg/monitor/smoke TB、C++ bridge 及共享 header、smoke
+脚本、fixture generator、`tests/native/tx_checker_bridge_smoke.cpp`，以及
+`doc/vcs_tx_checker.md`。原生 smoke 用测试 adapter 验证真实 CPython embedding，
+不替代 VCS ABI 和 SV 调度验证。更新 README 简短接入链接、plan.md、research.md。
+提交时按实际时间追加 process.txt。
+
+不改现有 RX 算法、Demo 和 RFMeasure，不新增外部依赖。后续保留 RF 合规校正：
+payload 边界、PHY 门限、逐 bit ΔF2 统计、两种 pattern 配对，再加入 RF 自动验收。
+Streaming RX 另行评估。
+
+## 7. 当前 TODO
+
+- [x] 核实现有 RX、real IQ、依赖和 HDL 规则。
+- [x] 调研 CPython embedding 与 DPI 数组接口。
+- [x] 制定实施和 TDD 方案。
+- [x] 用户确认 GO。
+- [x] Python checker TDD 和回归。
+- [x] SV/DPI/smoke/接入文档。
+- [x] 本机验证和最终 diff。
+- [ ] 服务器 VCS smoke（需要实际执行环境）。
+
+## 8. 本地执行结果
+
+- 先运行新增测试得到缺少 tx_checker 的 Red，再实现后 33 项针对性测试 Green。
+- 完整 Python 回归：126 passed（本机 Python 3.13.7）。
+- 原生 C++ bridge 在 GCC 15.2.0、`-std=c++11 -Wall -Wextra -Werror` 下编译，
+  真正嵌入本机 CPython 并调用 checker；正常包、非零/降序数组下标、PDU 不符、
+  错误 CRC、异常 traceback、异常恢复及不同 PHY/whitening/CRCInit 连续调用通过。
+- Verilator 5.040 静态展开无语法错误，生成的 DPI prototype 与 C++ header 同时
+  编译通过；保留 34 条 BLKSEQ（验证组件的 blocking 操作）和 10 条 UNDRIVEN
+  （clocking input）警告，不宣称 clean lint 或实际 SV 功能仿真通过。
+- Bash syntax、Python compile 和 diff whitespace 检查通过。
+- 服务器 VCS/Python 3.10 实际编译运行未执行；四态 enable、采样 region 和真实
+  simulator ABI 的验收保留在 VCS smoke。
+- 本次未执行 Git commit，process.txt 按项目规则在提交时追加。
+
+---
+
+# LE Test Packet Interval 零填充计划
+
+状态：待实现（截至 2026-09-28）
+
+当前 Python 主流程尚未实现 `packet_interval` 配置；已提交内容仅包含 MATLAB
+interval golden vector，以及 metadata 对实际 `padding_samples` 的记录。本计划保留为
+后续 TDD 实现依据。
+
+确认口令：`GO`
+
+日期：2026-07-21
+
+## 1. 目标
+
+新增可配置的 LE Test Packet interval 功能，使 RF Test/DTM IQ waveform 和
+Verilog MEM 可以按 Core 6.2 `I(L)` 周期循环播放。
+
+配置形式：
+
+```yaml
+tx:
+  packet_interval:
+    enabled: true
+```
+
+默认关闭，现有配置和单 Packet 输出不变。
+
+## 2. 实现方案
+
+### 2.1 Interval 计算与补零
+
+修改 `ble_studio/modulator.py`：
+
+- 定义 625 us interval quantum 和 249 us guard 常量，禁止散落幻数。
+- 新增纯函数计算 `I(L)` 和目标 sample 数。
+- 新增纯函数在 IQ 尾部追加 `complex zero`。
+- 返回 packet samples、padding samples、interval samples 和 interval duration metadata。
+- 校验输入为一维 complex waveform、采样率为正数，目标长度必须是整数 sample。
+
+计算规则：
+
+```text
+I(L) = ceil((L + 249 us) / 625 us) * 625 us
+```
+
+### 2.2 Demo 配置
+
+修改 `examples/demo.py`：
+
+- `SimConfig` 末尾新增 `packet_interval_enabled: bool = False`，保持旧位置参数顺序。
+- 从 `tx.packet_interval.enabled` 读取开关。
+- 仅在 `rf_test/dtm` 下允许开启；Advertising 明确报错。
+- 在 TX 调制后、Channel 前补零。
+- console 输出 Packet duration、interval、padding sample 数。
+- RFMeasure 继续只消费未补零的 Packet 区间。
+- RX 和 IQ exporter 消费完整 interval waveform。
+
+### 2.3 96 MHz 配置
+
+修改 `examples/config_rftest_1m_prbs9_96m.yaml`：
+
+```yaml
+tx:
+  packet_interval:
+    enabled: true
+```
+
+重新生成后：
+
+- `iq_tx.mem`：60,000 行。
+- 前 36,096 行：LE 1M PRBS9 Packet。
+- 后 23,904 行：`000000`。
+- 周期：625 us。
+
+### 2.4 文档
+
+修改 `README.md`，说明：
+
+- 单 Packet 与 Direct Test Mode interval waveform 的区别。
+- 配置开关、`I(L)` 公式和 96 MHz 示例。
+- MEM 循环播放方式及 I/Q packed layout。
+
+## 3. TDD 测试
+
+先新增 `tests/core/test_packet_interval.py`：
+
+1. 96 MHz、376 us 输入得到 60,000 samples。
+2. padding 为 23,904 个 `0+0j`。
+3. 原 Packet prefix 完全不变。
+4. 关闭开关时不改变输出。
+5. 625 us 边界前后使用正确 ceiling 行为。
+6. Advertising mode 拒绝 interval 配置。
+7. Demo 理想 RX 保持 sync、CRC、payload match。
+8. 生成 MEM 为 60,000 行且最后一行为 `000000`。
+
+随后运行：
+
+```powershell
+python -m pytest tests/core/test_packet_interval.py -q
+python -m pytest tests/core -q
+python -m pytest tests/logic_analyzer -q
+python -m pytest -q
+python examples/demo.py examples/config_rftest_1m_prbs9_96m.yaml
+```
+
+## 4. 影响评估
+
+- 默认关闭，不改变现有 API 和 waveform 长度。
+- 新增字段位于 `SimConfig` 末尾，不破坏旧位置参数。
+- 开启后 `iq_tx/iq_rx` 和 HTML 的 sample 数增加到完整 interval。
+- Bypass 时 TX/RX padding 均为零；AWGN 下 RX padding 区可包含噪声。
+- RF metrics 排除 padding，避免平均功率和频偏被零区污染。
+- 不引入新依赖，不修改 Packet bits、GFSK 调制或 Demodulator 算法。
+
+## 5. 预计文件
+
+修改：
+
+- `ble_studio/modulator.py`
+- `examples/demo.py`
+- `examples/config_rftest_1m_prbs9_96m.yaml`
+- `README.md`
+- `plan.md`
+
+新增：
+
+- `tests/core/test_packet_interval.py`
+
+## 6. 确认
+
+- 回复 `GO`：按本计划进入 Red -> Green -> full regression。
+- 提出修改意见：修订计划后重新等待确认。
+- 否决：停止，等待新指令。
+
+---
+
+# 已完成：BLE Studio Core Correctness 修复计划
+
+状态：已按 `GO` 执行完成（2026-07-21）
+
+确认口令：`GO`
+
+日期：2026-07-21
+
+## 1. 本阶段目标
+
+本阶段先修复 BLE Studio 中可由 Core 6.2 向量和理想闭环确定验证的问题，建立后续 RX、信道和 RF 指标优化的可信基线：
+
+1. 修复 LE 1M/2M 前导码、whitening、CRCInit 和 Data Channel PDU 生成。
+2. 修复 `CONNECT_IND` payload 丢失。
+3. 让 README 已公开的 BER/PER API 恢复可运行。
+4. 修复 Demo 中 `access_address`、DTM whitening 和非法 mode 的参数传递。
+5. 对整数 SPS 和尚未实现的 LE Coded PHY 做明确校验，禁止静默生成错误波形。
+6. 修复 Channel type 与实际 impairment chain 的确定性不一致。
+7. 新增 Core/PHY 自动测试，继续保证逻辑分析仪 32 个测试不回归。
+
+## 2. 本阶段明确不做
+
+- 不修改逻辑分析仪的 extraction 算法和已建立的输出契约。
+- 不为了让真实 DDR capture 立即同步而调整 Demodulator 判决阈值或相关策略。
+- 不在本阶段实现 LE Coded FEC、pattern mapper、CI、TERM1/TERM2。
+- 不重新设计 Rician/Rayleigh 的统计模型，不校准 RFMeasure 合规门限。
+- 不重构 Visualizer、ReportGenerator 或 IQ IO。
+- 不删除历史文件或用户当前未提交改动。
+
+真实 capture RX、信道模型精度和 LE Coded 将在本阶段测试基线通过后分别规划。
+
+## 3. 改动方案
+
+### 3.1 Packet 规范处理
+
+修改 `ble_studio/packet.py`：
+
+- 增加内部 preamble helper，根据 Access Address LSB 和 LE 1M/2M 选择传输序列。
+- `BLEPacket` 和 `RFTestPacket` 共享同一选择规则。
+- 按 Core 6.2 的 LFSR 方向修正 whitening，并让 TX/RX 共享同一个内部实现。
+- `generate()` 使用 `config.crc_init` 调用现有 CRC 算法。
+- `create_data_packet()` 生成时保留调用方传入的完整 Data PDU，不再重建错误 header。
+- `create_connect_ind()` 返回 `InitA + AdvA + LLData` 的 34-byte payload。
+- 增加 channel、payload length、address length、CRCInit 范围等必要输入校验。
+
+不改变现有便捷函数名称和位置参数顺序。
+
+### 3.2 Demodulator 契约
+
+修改 `ble_studio/demodulator.py`：
+
+- 在 `DemodulatorConfig` 添加 `crc_init: int = 0x555555`，属于向后兼容的可选字段。
+- CRC 检查使用配置值，不再硬编码 Advertising init。
+- 去白化调用与 Packet 相同的内部序列实现。
+- 校验 sample rate 必须产生正整数 SPS。
+- 对 `LE_CODED_S2/S8` 明确抛出 `NotImplementedError`，避免伪装成 LE 1M 成功。
+- 保留当前 LE 1M/2M 解调算法、同步阈值和 frequency/timing recovery 行为。
+
+### 3.3 Modulator 参数校验
+
+修改 `ble_studio/modulator.py`：
+
+- 校验 sample rate、symbol rate、BT、modulation index 和 pulse length 的基本范围。
+- sample rate 不能通过 `int()` 静默截断为错误 SPS。
+- 对 LE Coded 明确报未实现。
+- 不改变当前 LE 1M/2M GFSK phase pulse 算法，先由 characterization tests 固定。
+
+### 3.4 Performance 恢复
+
+修改 `ble_studio/performance.py`：
+
+- 删除对不存在的 `BLEModulator.add_noise/add_frequency_offset/add_timing_offset` 的调用。
+- 使用现有 `BLEChannel(ChannelConfig(...))` 统一施加 AWGN、频偏和定时偏移。
+- 根据 PHY 传递正确 `symbol_rate`。
+- 保留 `quick_ber_test()`、`quick_snr_sweep()` 和现有返回 dataclass。
+- 修正 BER 长度差的统计，避免截断后漏算错误。
+- 使用现有 seed 语义建立可重复测试，不在本阶段改公共随机数 API。
+
+### 3.5 Demo 参数一致性
+
+修改 `examples/demo.py`：
+
+- 把自定义 DTM `access_address` 真正传入 `create_test_packet()`。
+- `rf_test` 和 `dtm` 使用同一 whitening 规则。
+- Advertising 固定使用规范 AA；冲突配置给出可操作错误。
+- 只接受当前实现的 `rf_test`、`dtm`、`advertising` mode。
+- 将 `crc_init` 传入 RX 配置；配置未提供时保持现有默认值。
+
+### 3.6 Channel 确定性修复
+
+修改 `ble_studio/channel.py`：
+
+- 将 `ChannelType.FLAT_FADING` 正确映射到 `FlatFadingChannel`。
+- 默认不隐式启用 PhaseNoise；只有用户显式配置时才加入。
+- 在 `ChannelConfig` 增加向后兼容的 indoor environment 字段，并让 factory 参数实际生效。
+- 校验 path delay/gain 长度、sample/symbol rate、K factor 等基本参数。
+- 不改变现有 fading 数学实现，本阶段只修复构建链和参数契约。
+
+## 4. 测试计划
+
+新增 `tests/core/`：
+
+### 4.1 规范向量
+
+- Core 6.2 channel 0/1 whitening 前 64 bits。
+- Core 6.2 Data Channel PDU 的 `CRCInit=0xC4C181` CRC bits。
+- Core 6.2 PRBS9 起始序列 `11111111100000111101...`。
+- DTM PDU header 和 payload pattern。
+
+### 4.2 Packet 测试
+
+- AA LSB 0/1 下 LE 1M 和 LE 2M preamble。
+- Advertising、DTM、Data PDU 的 exact bitstream 字段。
+- Data Channel custom CRCInit。
+- CONNECT_IND payload 字段和长度。
+- 非法 channel、payload/address length、CRCInit。
+
+### 4.3 TX/RX 集成测试
+
+- DTM LE 1M/2M 理想 loopback。
+- Advertising LE 1M 理想 loopback，覆盖 AA LSB=0。
+- Data Channel custom CRCInit + whitening loopback。
+- `data/iq/BLE_1M.bwv` MATLAB reference 解调回归。
+- Coded PHY 明确报未实现。
+- 非整数和过低 sample rate 明确报错。
+
+### 4.4 Performance/Channel
+
+- `quick_ber_test()` 在高 Eb/N0 下可完成且结果结构正确。
+- 固定 seed 可重复。
+- FrequencyOffset/TimingOffset 实际进入 chain。
+- FLAT_FADING 映射正确。
+- 默认 Channel 不含未请求的 PhaseNoise。
+- indoor environment 参数生效。
+
+## 5. 文档更新
+
+修改 `README.md` 和必要示例注释：
+
+- 删除不存在的 `modulator.add_*` 调用，改为 `BLEChannel`。
+- 明确当前正式支持 LE 1M/2M；LE Coded 为未实现能力。
+- 修正 Data Channel、BER/PER 和 channel scan 的描述。
+- 标明 `snr_db` 当前字段语义实际为 Eb/N0，保留兼容名称。
+
+## 6. 公共接口和兼容性影响
+
+- `DemodulatorConfig` 新增可选 `crc_init`，现有调用无需修改。
+- `ChannelConfig` 新增可选 indoor environment/phase-noise 显式配置，现有常规调用保持可构造。
+- 正确 whitening 会改变普通 Advertising/Data Packet 的 on-air bits；这是规范修复，旧错误结果不兼容。
+- AA LSB=0 的前导码会从错误的 `1010...` 改为规范要求的 `0101...`。
+- 非整数 SPS 和 LE Coded 从“静默生成错误结果”改为明确异常。
+- Data Channel 与 CONNECT_IND 输出会从错误内容改为规范内容。
+
+不修改现有函数名称，不移除现有导出符号，不引入新依赖。
+
+## 7. 预计改动文件
+
+修改：
+
+- `ble_studio/packet.py`
+- `ble_studio/modulator.py`
+- `ble_studio/demodulator.py`
+- `ble_studio/channel.py`
+- `ble_studio/performance.py`
+- `examples/demo.py`
+- `README.md`
+
+新增：
+
+- `tests/core/__init__.py`
+- `tests/core/test_packet_vectors.py`
+- `tests/core/test_packet_builders.py`
+- `tests/core/test_loopback.py`
+- `tests/core/test_channel.py`
+- `tests/core/test_performance.py`
+
+不修改用户已有的 `examples/config_rftest_prbs9.yaml` 工作树改动，除非执行时确认某个计划内测试必须调整该文件；如发生则停止请示。
+
+## 8. 验证命令
+
+```powershell
+python -m pytest tests/core -q
+python -m pytest tests/logic_analyzer -q
+python -m pytest -q
+python examples/benchmark.py --quick --phy 1M
+python examples/benchmark.py --quick --phy 2M
+python examples/demo.py examples/config_ideal.yaml
+python examples/demo.py examples/config_rftest_prbs9.yaml
+```
+
+示例产生的报告仅写入已忽略的 `results/`，不覆盖迁移后的 capture 或 fixture。
+
+## 9. 后续阶段
+
+本计划完成后再分别编写计划：
+
+1. 真实逻分 IQ 的 RX robustness 与 burst/sync 诊断。
+2. Channel/RFMeasure 的统计模型和 RFPHY 合规校准。
+3. LE Coded S=2/S=8 完整实现。
+
+## 10. 确认
+
+- 回复 `GO`：按本计划开始编码和测试。
+- 提出修改意见：修订本计划后重新等待确认。
+- 否决：停止，等待新指令。
+
+执行结果：
+
+- Core/PHY、Channel、Performance 与 Demo 新增 41 个测试。
+- 逻辑分析仪原有 32 个测试保持通过。
+- 全仓 `pytest`：73 passed。
+- Advertising 与 DTM 示例均达到 sync、CRC 和 payload match 成功。
+- LE 1M/2M quick benchmark 均完成。
+
+---
+
+# 已完成：逻辑分析仪子系统整理计划
+
+状态：已按 `GO` 执行完成（2026-07-20）
+
+确认口令：`GO`
+
+## 1. 目标
+
+本次改动完成以下目标：
+
+1. 将逻辑分析仪能力从零散 `utils` 脚本迁入可安装、可测试的正式 Python package。
+2. 统一 DDR IQ、SDR 并行数据和 RSSI/control signal 的处理 pipeline。
+3. 让所有输出格式消费同一次处理结果，消除 HTML、VCD、MAT、TXT 之间的数据漂移。
+4. 建立明确的 Logic Analyzer -> normalized complex IQ -> BLE Studio RX 契约。
+5. 把配置、硬件 Profile、输入 capture、回归 fixture 和生成 artifact 分目录管理。
+6. 保留当前命令的兼容 wrapper，避免破坏现有工作流。
+7. 为现有算法建立 characterization tests，后续可以安全优化采样算法。
+
+## 2. 明确不做的内容
+
+本阶段不修改以下模块的算法行为：
+
+- `ble_studio/packet.py`
+- `ble_studio/modulator.py`
+- `ble_studio/channel.py`
+- `ble_studio/demodulator.py`
+- `ble_studio/measure.py`
+- `ble_studio/performance.py`
+
+本阶段不会为了让某个 capture 解调成功而修改 RX，也不处理 Advertising、Data Channel、RFPHY 合规或 Coded PHY 问题。
+
+本阶段不删除原始 capture，不执行 Git history rewrite，不引入 Git LFS。重复和旧文件先迁移到隔离目录，后续再单独确认删除。
+
+## 3. 目标目录
+
+```text
+ble_studio/
+  logic_analyzer/
+    __init__.py
+    __main__.py
+    config.py
+    models.py
+    capture.py
+    processing.py
+    extraction.py
+    pipeline.py
+    exporters.py
+    vcd.py
+    visualization.py
+    validation.py
+    cli.py
+
+configs/
+  logic_analyzer/
+    adc_ddr.yaml
+    rssi_raw_sdr.yaml
+    rssi_resampled_sdr.yaml
+
+doc/
+  logic_analyzer/
+    README.md
+    extraction_rules.md
+    formats.md
+
+data/
+  logic_analyzer/
+    README.md
+    fixtures/
+    captures/          # 本地完整 capture，Git ignore
+    profiles/          # Kingst kvset，可版本化
+    quarantine/        # 含义未确认的数据，Git ignore
+  iq/
+    BLE_1M.bwv
+
+artifacts/
+  logic_analyzer/      # 所有可再生输出，Git ignore
+
+legacy/
+  logic_analyzer/      # 旧实现和一次性实验，只保留参考
+
+tests/
+  logic_analyzer/
+    test_config.py
+    test_capture.py
+    test_processing.py
+    test_extraction.py
+    test_exporters.py
+    test_pipeline.py
+    test_validation.py
+    test_cli.py
+    fixtures/
+```
+
+## 4. 稳定 API 和 CLI
+
+### 4.1 Python API
+
+建立不依赖 CLI、绘图和文件输出的核心入口：
+
+```python
+result = process_capture(config)
+```
+
+`CaptureResult` 至少包含：
+
+- capture 类型：`iq_ddr` 或 `parallel_sdr`
+- raw channel 数据或其必要 metadata
+- unsigned/signed 提取数据
+- normalized complex IQ，可为空
+- nominal 和 measured sample rate
+- bit width、bit order、I/Q edge mapping
+- raw/cleaned/sample positions
+- extra control signals
+- segment/burst 信息
+- 实际生效配置
+- warning 列表
+
+Exporter、可视化和 RX 验证只读取 `CaptureResult`，不得重新执行采样算法。
+
+### 4.2 CLI
+
+新增统一入口：
+
+```text
+python -m ble_studio.logic_analyzer convert <config.yaml>
+python -m ble_studio.logic_analyzer diagnose <config.yaml>
+python -m ble_studio.logic_analyzer config --profile adc-ddr <output.yaml>
+```
+
+同时在 `pyproject.toml` 增加 console script，建议命名：
+
+```text
+ble-la
+```
+
+计划支持的子命令：
+
+- `convert`：运行一次 pipeline，并按配置导出。
+- `diagnose`：输出边沿、稳定度、delay、burst 和 sample rate 诊断。
+- `config`：生成内置 profile 配置。
+
+旧命令暂时保留 thin wrapper，并输出迁移提示：
+
+- `utils/logic_analyzer_bin2wave.py`
+- `utils/bin_to_vcd.py`
+- `utils/rssi_parser.py`
+- `utils/analyze_sampling_issues.py`
+
+## 5. 配置设计
+
+使用类型化 dataclass，并对以下内容做显式校验：
+
+- 输入存在且字节长度符合 Kingst 16-channel 格式。
+- `mode/profile` 合法。
+- channel 范围为 0-15。
+- `data_bits` 不重复，长度与 `bit_width` 一致。
+- DDR 必须提供 clock/data indicator channel 和 I/Q edge mapping。
+- sample rate、data rate、输出格式均为有效值。
+- `extra_signals` 不与 data/clock channel 非预期冲突。
+
+配置相对路径默认相对于 YAML 所在目录解析。为了兼容旧配置，如果新规则找不到文件，再尝试旧的 CWD 规则并输出 deprecation warning。
+
+保留旧字段的 adapter：
+
+- `sample_rate`
+- `data_rate`
+- `mode`
+- `data_bits`
+- `clk_channel` / `data_indicator`
+- `rising_edge_data`
+- `falling_edge_data`
+- `save_formats`
+
+三个正式 profile：
+
+1. `adc_ddr.yaml`：10-bit DDR I/Q。
+2. `rssi_raw_sdr.yaml`：8-bit RSSI 加 `agc_init/rampup/fire_timer`，每个 LA sample 一个 word。
+3. `rssi_resampled_sdr.yaml`：按目标 word rate 生成虚拟边沿并恢复并行数据。
+
+每个 profile 使用独立 artifact 目录，禁止再次共用 `rssi_wave` 前缀。
+
+## 6. Pipeline 行为
+
+### 6.1 BIN decode
+
+- 只保留一份 Kingst 16-channel decoder。
+- 使用明确的 little-endian channel mapping。
+- 对空文件、奇数字节、非法 channel 和截断输入给出可操作错误。
+- `data_bits` 顺序继续定义输出 bit significance，但配置和 summary 中必须明确记录。
+
+### 6.2 Filtering 和 extraction
+
+- 先用 characterization tests 固定当前工作树行为。
+- 将 input glitch filter、adaptive filter 和 output spike filter 拆为三个独立开关。
+- DDR、SDR 共享 decoder 和 result model，但使用独立 extraction strategy。
+- 保留每个 sample 的 source edge、各 bit sample position 和 segment 信息。
+- `提取规则.md` 的九种场景全部转为参数化测试。
+- 文档只描述实际实现；不再保留与代码不一致的“上下文智能采样”说明。
+
+### 6.3 Sample rate
+
+- DDR 默认使用配置定义的 nominal IQ rate，例如 `data_rate / 2`。
+- measured rate 作为独立 metadata，不再使用量化后的 interval median 静默覆盖 nominal rate。
+- measured rate 使用排除 gap 后的 mean 或线性拟合，并记录估算方法。
+- RX 验证阶段可选重采样到整数 samples-per-symbol，原始提取数据不被覆盖。
+
+## 7. 统一输出契约
+
+### 7.1 MAT 作为 RX canonical format
+
+DDR IQ MAT 至少包含：
+
+```text
+iq
+I_unsigned
+Q_unsigned
+I_signed
+Q_signed
+fs
+fs_nominal
+fs_measured
+bit_width
+sample_positions
+metadata
+```
+
+其中：
+
+```python
+iq = (I_signed + 1j * Q_signed) / 2**(bit_width - 1)
+```
+
+BLE Studio 可以直接通过 `mat_complex_var: iq` 导入，不再要求用户手动选择 signed 变量。
+
+### 7.2 TXT
+
+- 默认 RX-compatible TXT 使用 `//` header 和两列 signed decimal：`I Q`。
+- 如需 hex 和采样位置，另行生成 debug CSV/TXT，不复用 canonical 文件名。
+- metadata 写入同目录的 `summary.json`，不依赖解析 header 恢复 Fs。
+
+### 7.3 NPY/MEM
+
+- NPY 明确文件语义和 dtype，不再用同一后缀表达多个结构。
+- MEM 保留高位 I、低位 Q 布局，并在 summary 中记录 bit width 和 Fs。
+- 所有跨格式内容必须来自同一个 `CaptureResult`。
+
+### 7.4 HTML/VCD
+
+- HTML 默认最多绘制固定数量的采样点，完整数据仍保存在 MAT/NPY。
+- 抽样策略和原始长度写入 summary。
+- VCD 成为正式 exporter，不再单独复跑 pipeline。
+- VCD 支持 DDR、SDR 和 `extra_signals`，时间戳必须单调。
+- VCD 和 HTML 均为显式可选格式，禁止生成一个格式时隐式生成另一个。
+
+## 8. BLE RX 验证
+
+配置增加可选 `ble_rx` 部分：
+
+```yaml
+ble_rx:
+  enabled: true
+  phy_mode: LE_1M
+  access_address: 0x71764129
+  channel: 0
+  whitening: false
+  target_samples_per_symbol: 16
+```
+
+处理规则：
+
+1. 只接受 `CaptureResult.iq` 非空的 DDR IQ 结果。
+2. 使用 normalized complex IQ。
+3. 必要时通过现有 SciPy 重采样到整数 SPS。
+4. 调用现有 `BLEDemodulator`，不修改其内部算法。
+5. 将 `success/sync_found/crc_valid/access_address/freq_offset/timing_offset` 写入 console 和 `summary.json`。
+6. 解调失败仍是一次成功完成的分析任务，CLI 返回结构化结果；只有输入、配置或 pipeline 错误才返回非零退出码。
+
+## 9. 文件迁移
+
+### 9.1 代码
+
+- 从当前 `utils/logic_analyzer_bin2wave.py` 提取正式 package。
+- `utils/bin_to_vcd.py` 的 VCD 逻辑迁入 `exporters/vcd`。
+- `utils/rssi_parser.py` 的 extra signal 提取迁入 SDR pipeline。
+- `utils/analyze_sampling_issues.py` 的有效诊断迁入 `diagnose`。
+- `utils/logic_analyzer_to_iq.py`、`search_best_sample.py`、`my_test.py` 移入 `legacy/logic_analyzer/`，不再作为文档入口。
+- 原入口改为 thin wrapper，兼容期内不删除。
+
+### 9.2 配置和文档
+
+- 现有逻分 YAML 迁入 `configs/logic_analyzer/`。
+- `doc/logic_analyzer_data_processing.md`、`提取规则.md` 和 prompt 内容合并到 `doc/logic_analyzer/`。
+- README 更新新的目录、CLI、数据流和旧命令兼容说明。
+- `examples/config_import_hex.yaml` 更新为 canonical MAT `iq` 示例，不再引用旧 unsigned/signed 特例。
+
+### 9.3 数据
+
+迁移前生成 manifest，记录 path、size、SHA256 和 tracked 状态。
+
+- `test.bin`、`rssi.bin` -> `data/logic_analyzer/captures/`，完整文件本地保留并 Git ignore。
+- 从当前 capture 截取 2-32 KiB 的真实 DDR/SDR fixture，提交到 `tests/logic_analyzer/fixtures/`。
+- `test3.bin` -> `data/logic_analyzer/quarantine/`，不删除。
+- `*.kvset` -> `data/logic_analyzer/profiles/`。
+- `*.kvdat` -> `data/logic_analyzer/captures/`；重复项只标记，本阶段不删除。
+- `test_iq*`、`test_debug*`、`rssi_wave*` -> `artifacts/logic_analyzer/legacy/`，本地保留并 Git ignore。
+- `BLE_1M.bwv` -> `data/iq/`。
+
+不恢复当前已经被用户删除的文件，也不清理 Git 历史中的旧大对象。
+
+## 10. 测试计划
+
+### 10.1 Characterization tests
+
+- 当前 DDR fixture 的 I/Q 长度、前若干 sample、delay 和 sample positions。
+- 当前 SDR fixture 的 word 和 extra signals。
+- 当前 working tree 的 spike filter 行为。
+- 九种采样规则的参数化结果。
+
+### 10.2 Unit tests
+
+- 16-channel BIN mapping：ch0、ch7、ch8、ch15。
+- 空文件、奇数字节、非法 channel 和 bit width。
+- legacy/new config path resolution。
+- DDR I/Q edge mapping、I/Q swap、边沿数量不等。
+- SDR 整数和非整数 samples-per-word。
+- two's-complement 边界。
+- 三种 filter 开关互不影响。
+- sample rate nominal/measured 计算。
+
+### 10.3 Export tests
+
+- MAT `iq` 能被 `import_iq_mat()` 直接读回。
+- TXT 能被 `import_iq_txt()` 直接读回。
+- MAT/TXT/MEM/NPY 的 I/Q 数值一致。
+- VCD 时间戳单调且包含配置声明的信号。
+- HTML 抽样点数不超过限制。
+- 输出只包含配置请求的格式。
+
+### 10.4 Integration tests
+
+- 从仓库外 CWD 调用 CLI。
+- `python -m ble_studio.logic_analyzer --help`。
+- 旧 wrapper 命令仍可运行。
+- DDR capture -> canonical MAT -> IQImporter。
+- ideal IQ -> RX validation 的接口测试。
+- 真实 capture 的 RX 结果作为诊断输出记录，不强制要求 CRC 成功。
+
+### 10.5 验证命令
+
+计划执行：
+
+```powershell
+python -m pytest tests/logic_analyzer -q
+python -m ble_studio.logic_analyzer --help
+python -m ble_studio.logic_analyzer convert configs/logic_analyzer/adc_ddr.yaml --no-plot
+python -m ble_studio.logic_analyzer convert configs/logic_analyzer/rssi_raw_sdr.yaml --no-plot
+```
+
+完整 20 MiB RSSI capture 和大 HTML/VCD 仅做本地 slow verification，不进入常规测试。
+
+## 11. 依赖和公共接口影响
+
+### 11.1 新依赖声明
+
+`PyYAML` 已是现有代码的实际必需依赖，但项目没有声明。执行阶段计划将其变为显式依赖。根据项目规范，这是新增外部依赖声明，需要用户在 `GO` 中一并批准；安装时会使用核对过 Python 3.8 支持范围的确定版本。
+
+不计划引入其他第三方依赖。重采样继续使用现有 SciPy。
+
+### 11.2 公共接口
+
+- 新增 `ble_studio.logic_analyzer` API 和 `ble-la` CLI。
+- 不修改现有 BLE core 公共函数签名。
+- 旧 `utils` 命令暂时保留 wrapper。
+- canonical TXT/MAT 是新输出契约；legacy exporter 仅在明确配置时保留旧格式。
+
+## 12. 风险和停止条件
+
+执行时遇到以下情况将立即停止并请示，不继续猜测：
+
+- 当前未提交 SDR/RSSI 行为无法通过 characterization tests 固定。
+- 某个待迁移文件的来源或用途无法通过代码、配置、hash 和 metadata 确认。
+- 数据移动目标可能覆盖同名文件。
+- 真实 fixture 可能包含不适合提交仓库的数据。
+- 修正 sample rate 后会改变用户认可的既有解调结果。
+- RX 验证需要修改 Demodulator 才能继续。
+
+## 13. 预计改动文件
+
+新增：
+
+- `ble_studio/logic_analyzer/**`
+- `configs/logic_analyzer/**`
+- `doc/logic_analyzer/**`
+- `data/logic_analyzer/README.md`
+- `tests/logic_analyzer/**`
+- `artifacts/logic_analyzer/.gitkeep`
+- `legacy/logic_analyzer/README.md`
+- 首次提交时的 `process.txt`
+
+修改：
+
+- `pyproject.toml`
+- `.gitignore`
+- `README.md`
+- `examples/config_import_hex.yaml`
+- `utils/logic_analyzer_bin2wave.py`
+- `utils/bin_to_vcd.py`
+- `utils/rssi_parser.py`
+- `utils/analyze_sampling_issues.py`
+
+移动或归档：
+
+- 现有逻辑分析仪 YAML、Markdown、legacy scripts、Kingst Profile、capture 和生成产物。
+
+## 14. 确认
+
+请审阅本计划。
+
+- 回复 `GO`：按本计划进入执行阶段。
+- 提出修改意见：修订 `plan.md` 后重新等待确认。
+- 否决：停止本任务，等待新指令。
+
+---
+
+# gen_ble_data.m 审核与修正计划
+
+状态：已按 `GO` 执行；MATLAB runtime 回归待用户环境完成
+
+确认口令：`GO`
+
+日期：2026-07-22
+
+## 1. 已确认的产品决策
+
+1. 默认 PRBS9 以 Bluetooth Core DTM transmission-order vector 为准，不保留 MATLAB legacy 兼容模式。
+2. `isResample` 只生成模拟 ADC 输出文件；重采样后的非整数 SPS 数据不送入当前 `bleIdealReceiver`。
+3. `useAWGN` 开启时生成并导出带噪 IQ 文件，同时保留 clean TX reference。
+4. MAT/TXT 固定输出到 `reference/BLE_PKT`，每组文件必须描述同一采样率、长度和配置，并写入 metadata。
+
+## 2. 修正范围
+
+### 2.1 BLE packet source
+
+修改 `reference/Matlab/gen_ble_data.m`：
+
+- 修正 PRBS9/PRBS15 的 MATLAB polynomial 表达和 BLE transmission-order 校验。
+- 用 Core DTM golden prefix/full payload 检查 PRBS，不仅检查 polynomial 名称。
+- 显式定义 `headerValue`、`payloadLenBytes`、`headerBits`、`lengthBits`，避免变量复用。
+- 对 `rate`、`Fs`、channel、header、payload length、AA 和 amplitude 做范围校验；非法值明确报错。
+- 所有 DTM pattern 显式标注 byte order 与 on-air LSB-first order。
+- 保持 `AccessAddress=0x71764129`、CRC polynomial/init、`WhitenStatus='Off'` 和 `PulseLength=1` 的已确认行为。
+
+### 2.2 Output and metadata
+
+- 使用脚本目录解析 `reference/BLE_PKT`，必要时创建目录，不依赖当前 CWD 或 Windows 分隔符。
+- 明确区分 clean TX、resampled ADC 和 AWGN 输出，禁止同名覆盖。
+- MAT 保存 `LEWaveform`、`Fs`、实际输出采样率、PHY、channel、AA、CRC init、PDU/bits、padding 和 quantization metadata。
+- TXT/MEM 使用实际输出采样率命名，并保证 MAT/TXT 来自同一 waveform。
+- 检查 `fopen/save` 错误并保证文件句柄清理。
+
+### 2.3 Packet interval padding
+
+- 保留 Core 6.2 `I(L)=ceil((L+249 us)/625 us)*625 us`。
+- 使用整数 sample 目标长度和显式边界检查；`I(L)` 命名为 packet interval，不与 BLE `T_IFS` 混淆。
+- padding 在 clean/resampled/AWGN pipeline 中的顺序和输出语义写入注释与 metadata。
+
+### 2.4 Resample / simulated ADC
+
+- 计算并保存 `FsOut = Fs*P/Q`、`P`、`Q` 和 ADC clock 来源。
+- resampled 输出只用于 ADC 文件和离线分析，不调用当前要求整数 SPS 的 ideal RX。
+- 更新 scope 和文件命名使用 `FsOut`；修正过期的采样率注释。
+- 明确 padding 是在 resample 前还是后执行，并用目标 sample 数验证最终 interval。
+
+### 2.5 AWGN
+
+- 将 SNR/EbN0、noise floor、NF、带宽和 signal power 统一到一个可解释配置。
+- 修正噪声底单位和显示值，删除未使用变量。
+- 固定 RNG seed 以支持回归测试。
+- 导出 clean TX 和 noisy IQ，分别写 metadata；不把 idle zero 区误计入 active packet SNR。
+- RX 验证传入对应 `NoiseVariance`，并检查 access address、bit length、BER/bit error count。
+
+### 2.6 MATLAB helper
+
+修改 `reference/Matlab/mydec2comphex.m` 和 `quantize_nm.m`：
+
+- 固定 two's-complement hex 宽度并校验 finite/integer/range。
+- 明确 I/Q rounding policy；real 和 imaginary component 统一使用 MATLAB `round`。
+- 为半 LSB rounding 行为加入注释和 golden test，避免 MATLAB/NumPy 边界差异。
+
+## 3. TDD / golden vectors
+
+新增 MATLAB reference regression 测试或等价可执行检查：
+
+1. Core PRBS9 完整 payload 和前缀。
+2. DTM header、length、Access Address、CRC 和 whitening-off bitstream。
+3. 8/96 Msps clean waveform 长度、MAT/TXT 一致性。
+4. resampled ADC 输出的 `FsOut/P/Q` metadata 和文件长度。
+5. packet interval padding 的 target samples 和 zero 区。
+6. AWGN 输出与 clean 输出可区分、seed 可重复、active 区域 SNR 可复现。
+7. 12-bit fixed-width hex/MEM 逐行比较。
+
+## 4. 预期改动文件
+
+修改：
+
+- `reference/Matlab/gen_ble_data.m`
+- `reference/Matlab/quantize_nm.m`
+- `reference/Matlab/mydec2comphex.m`
+- `plan.md`
+
+新增或更新：
+
+- `reference/BLE_PKT` 下的 clean/resampled/AWGN reference vectors
+- MATLAB vector regression testcase（路径待根据 MATLAB CI/本地运行方式确认）
+
+## 5. 暂不执行的事项
+
+- 不修改 BLEStudio Python 默认 PRBS9 实现。
+- 不增加 MATLAB legacy PRBS 模式。
+- 不把非整数 SPS 的 resampled waveform 强行接入当前 ideal RX。
+- 不在没有用户确认 ADC clock 公式来源前重写硬件时钟计算。
+
+## 6. 确认
+
+- 回复 `GO`：按本计划进入 Red -> Green -> full regression。
+- 提出修改意见：修订本计划后重新等待确认。
+- 否决：停止，等待新指令。
+
+## 7. 执行结果
+
+- 已重写 `gen_ble_data.m` 的 DTM payload、CRC、packet interval、ADC resample、AWGN、metadata 和输出路径逻辑。
+- 已增加 `validate_ble_vectors.m`，独立校验 PRBS9/PRBS15、DTM header、Access Address、CRC、MAT/TXT 和 metadata。
+- 已收紧 `quantize_nm.m`、`mydec2comphex.m` 的输入/范围检查；通用 helper 不使用 BLE 专属 message ID。
+- 用户确认删除旧 reference 后，已清空 `reference/BLE_PKT` 中原有的 8/96 Msps MAT/TXT。
+- Python 全量 regression 为 `73 passed`，独立 LFSR 计算与 MATLAB 文件中的 PRBS9/PRBS15 golden 常量一致。
+- 当前环境未安装 MATLAB/Octave，因此尚未生成新 MAT/TXT，也未执行 MATLAB runtime 和 `validate_ble_vectors`；这一步必须在用户 MATLAB 环境完成。
+
+---
+
+# Python BLE 波形 JSON Sidecar 实施计划
+
+日期：2026-07-22
+
+状态：已完成
+
+## 1. 目标
+
+让 Python BLEStudio 成为正式 BLE 波形生成入口。启用 IQ output 后，每个实际生成的
+TX/RX 波形使用包含 PHY、实际采样率、payload 和长度的描述性文件名，并自动附带同名
+pretty JSON，用来说明协议内容、调制与信道参数、采样信息、定点量化规则及关联文件
+身份；`gen_ble_data.m` 和现有 MATLAB vectors 只作为 golden regression，不再作为
+日常生成依赖。
+
+## 2. 固定设计决策
+
+1. generated packet 的 basename 固定为
+   `<PHY>_<sample-rate>Msps_<payload>_<length>B_<TX|RX>`。例如：
+   `LE1M_96Msps_PRBS9_37B_TX.mem`、`LE1M_96Msps_PRBS9_37B_TX.json` 和
+   `LE1M_96Msps_PRBS9_37B_RX.json`。
+2. JSON 使用 UTF-8、2-space indent、末尾换行和 strict JSON；禁止 `NaN/Infinity`。
+3. schema 标识为 `ble_studio.waveform.v1`，并保留整数 `schema_version: 1`。
+4. JSON 在 TXT/MAT/MEM 全部成功写出后最后生成，`files` 只列实际存在的产物。
+5. JSON 不嵌入全量 IQ；用 sample count 和关联文件 SHA-256 证明它描述的具体波形。
+6. 同一 waveform 的 TXT/MAT/MEM/JSON 共用同一 basename；TX 和 RX 只通过末尾
+   `_TX` / `_RX` 区分。
+7. sample-rate token 使用实际 waveform sample rate。整数 MHz 写成 `96Msps`；
+   非整数值采用去除尾零的十进制 MHz，避免 Python float 尾差进入文件名。
+8. canonical PHY token 与 MATLAB 保持一致：`LE1M`、`LE2M`、`LE125K`、`LE500K`。
+9. payload token 使用稳定短名：`PRBS9`、`PRBS15`、固定 DTM pattern 或 `ADV`。
+10. 外部 IQ 使用 `<sanitized-input-stem>_<sample-rate>Msps_RX`，不在文件名中声称其
+    实际 packet 类型；receiver expectation 仅写入 JSON。
+11. 不改变现有 `IQExporter.quantize()` 函数签名。
+
+## 3. JSON Schema v1
+
+首版按以下语义分组：
+
+```text
+schema / schema_version / generator
+output_kind / source_kind / mode
+signal
+  sample_rate_hz / symbol_rate_hz / samples_per_symbol
+  sample_count / duration_us / active_samples / padding_samples
+packet
+  phy_mode / channel_index / frequency_mhz
+  access_address / header_value / payload_type / payload_length_bytes
+  payload_hex / pdu_hex / crc_hex / pdu_with_crc_hex
+  crc_init / whitening / packet_bit_count
+modulation
+  modulation_index / bt / pulse_length
+channel
+  type / bypass / ebn0_db / frequency_offset_hz
+  doppler_hz / k_factor / random_seed
+quantization
+  applies_to / bit_width / scale_to_full / scale_factor
+  rounding / signed_min / signed_max / saturation_i / saturation_q
+  txt_layout / mem_layout
+files
+  <format>: name / size_bytes / sha256
+```
+
+具体规则：
+
+- clean TX 的 `channel` 为 `null`；RX 才记录实际 channel。
+- bypass RX 使用 `ebn0_db: null`，不输出 `Infinity`。
+- generated TX/RX 可写入实际 packet；外部 IQ 的 RX 使用 `packet: null`，并单独记录
+  `receiver_expectation` 和 `input_file`，避免把 RX 输入来源描述错。
+- `random_seed` 首版为 `null`，明确表示 AWGN sample 不能仅靠参数重建；输出 hash 仍能
+  唯一核对本次文件。
+- 未实施 interval padding 时记录 `padding_samples: 0`，不宣称存在 625 us interval。
+
+## 4. Red：先增加失败测试
+
+### 4.1 IQ exporter 单元测试
+
+1. 正负 half-LSB 的 I/Q 都按 ties-away-from-zero 量化，覆盖 `+0.5/-0.5` 和连续边界。
+2. 上下限 clip 与 I/Q saturation count 正确。
+3. `scale_to_full` 的实际 scale factor 与 metadata 一致，动态缩放时不写误导性 Q label。
+4. 12-bit MEM 每行固定 6 hex digits，并保持 I 位于高 12 bits、Q 位于低 12 bits。
+5. pretty JSON 可被标准解析器读取，包含多行、末尾换行，且拒绝 non-finite number。
+6. 文件 size/SHA-256 与实际 TXT/MAT/MEM 一致。
+
+### 4.2 生成流程集成测试
+
+1. LE 1M、96 MHz、PRBS9、37 bytes 生成
+   `LE1M_96Msps_PRBS9_37B_TX.{txt,mat,mem,json}`，JSON 记录 96 MHz、96 SPS、
+   36,096 active samples，以及正确的 AA、payload、PDU、CRC init 和 whitening 状态。
+2. `LE1M_96Msps_PRBS9_37B_TX.json` 的协议字段与
+   `reference/BLE_PKT/LE1M_96Msps.json` golden 对齐；
+   Python packed MEM 继续与 MATLAB golden TXT 逐行一致。
+3. TX JSON 的 sample count 与同 basename 的 TXT data rows、MEM rows、MAT IQ length
+   一致。
+4. bypass 时 TX/RX 数组相同，但 `output_kind` 和 channel provenance 不同。
+5. AWGN RX 有 channel 参数，clean TX 不带 channel 结果，JSON 中不出现 `Infinity`。
+6. 外部 IQ 采样率不同于 TX 配置时，TX 仍记录 `cfg.sample_rate`；RX 记录导入文件的
+   有效采样率、来源文件和 hash，且不把配置 packet 当成真实 RX source。
+7. `export_tx=false` 不生成任何 `_TX.*`；关闭整个 output 时不生成任何 sidecar。
+8. 请求的导出格式失败时异常向上传播，且不生成内容不完整却声称成功的 JSON。
+9. 文件名 formatter 覆盖 LE1M/LE2M/LE125K/LE500K、整数/非整数 Msps、所有 DTM
+   payload token 和非法路径字符清理。
+10. 外部 IQ 的 RX basename 使用输入文件 stem 和实际 RX 采样率；当 TX 与 RX 采样率
+    不同时，两组文件名分别反映各自采样率。
+
+## 5. Green：实现步骤
+
+1. 在 `ble_studio/iq_io.py` 增加不改变公共量化返回值的内部 quantization detail，统一
+   I/Q half-LSB rounding，并提供 strict pretty JSON、file descriptor/SHA-256 helper。
+2. 调整 TXT header：保留原格式兼容，补充实际 scale factor；只在定义确实匹配时报告
+   Q format。
+3. 在 `examples/demo.py` 根据实际 PHY、sample rate、payload/source 和 TX/RX 方向生成
+   稳定 basename，并组装 waveform schema；packet/modulator/channel 等语义由仿真
+   主流程提供，文件和 quantization 事实由 IQ exporter 提供。
+4. 修正 TX/RX sample rate 归属；外部 IQ 路径建立明确的 source provenance。
+5. 先写 TXT/MAT/MEM，校验成功后计算 size/hash，最后原子地写同名 JSON sidecar。
+6. MAT 请求缺少 `scipy` 时抛出带解决方式的错误，不再静默跳过。
+7. 更新 README 的波形导出说明和 96 MHz PRBS9 示例，列出 JSON 的用途与字段边界。
+
+## 6. 预计文件清单
+
+修改：
+
+- `ble_studio/iq_io.py`
+- `examples/demo.py`
+- `README.md`
+- `tests/core/test_iq_io.py`（若现有测试文件不存在则新增）
+- `tests/core/test_demo.py` 或新增 `tests/core/test_waveform_metadata.py`
+- `research.md`
+- `plan.md`
+
+仅当 packet 现有接口无法无重复地提供 CRC/PDU metadata 时，才对
+`ble_studio/packet.py` 增加向后兼容的只读 helper，并先检查全部调用方。
+
+## 7. 影响与明确不做
+
+- 不改变 BLE packet、浮点 IQ 或 public quantize 返回类型。
+- 按用户要求，输出 basename 从通用 `iq_tx` / `iq_rx` 改为描述性命名。这是有意的
+  文件接口变更；现有 Verilog testbench 中写死的 `$readmemh(".../iq_tx.mem")` 需要改为
+  新文件名。不会额外保留同内容 legacy alias，避免目录内出现两份含义相同的波形。
+- half-LSB 精确落点的定点导出值会从 NumPy ties-to-even 改为已确认的 MATLAB/Core
+  golden policy；非 half-LSB 样本不受影响。
+- TXT header 可能增加/修正注释行；数据行和 Verilog MEM layout 保持不变。
+- 不实现 packet interval padding，不改变 AWGN RNG/seed API，不加入性能 sweep。
+- 不增加依赖，不运行 MATLAB；使用已经生成的 MATLAB 文件做离线 golden regression。
+
+## 8. 验证
+
+1. 运行新增的 exporter/metadata testcase，完成 Red -> Green。
+2. 运行 `pytest -q` 全量 regression。
+3. 用 `examples/config_rftest_1m_prbs9_96m.yaml` 实际生成一组波形，检查 JSON 人工可读、
+   所有文件 hash/长度一致。
+4. 将 Python `LE1M_96Msps_PRBS9_37B_TX.mem` 与 MATLAB 96 MHz golden TXT 逐行比较。
+
+## 9. 确认
+
+- 回复 `GO`：按本计划开始 TDD 实施。
+- 提出修改意见：修订 `plan.md` 后重新等待确认。
+- 否决：停止，等待新指令。
+
+## 10. 执行结果
+
+- generated BLE waveform 已改用
+  `<PHY>_<sample-rate>Msps_<payload>_<length>B_<TX|RX>` 描述性 basename；外部 IQ
+  使用输入文件 stem、实际采样率和 RX 方向命名。
+- 每个实际导出的 TX/RX 自动生成同 basename 的 strict pretty JSON，记录 packet、
+  modulation、channel、source、实际采样信息、量化规则和关联文件 SHA-256。
+- TX sample rate 与 imported RX sample rate 已解耦；外部 IQ metadata 不再冒充配置中的
+  PRBS packet，receiver expectation 单独记录。
+- Python I/Q 量化已统一为 MATLAB `round` 的 ties-away-from-zero，并记录实际动态
+  scale、clip 范围及 I/Q saturation count。
+- `LE1M_96Msps_PRBS9_37B_TX.mem` 与 MATLAB 96 MHz golden TXT 逐字节一致；浮点 IQ
+  最大复数误差为 `2.854e-14`。
+- 新生成的正式示例位于 `artifacts/waveforms/LE1M_96Msps_PRBS9_37B`。
+- 定向 metadata/exporter tests 与全量 regression 均通过；最终结果为 `93 passed`。
+
+---
+
+# BLEStudio 仓库目录清理计划
+
+状态：第一波清理已完成，等待用户检查
+
+日期：2026-09-27
+
+## 1. 目标
+
+在不改变 BLEStudio 正式功能、public CLI、golden regression 和原始 capture 的前提下，
+删除全部可再生输出、历史残留和一次性脚本，使根目录与当前架构一致。用户在执行阶段
+进一步确认：正式 Verilog waveform 也作为可再生 artifact 删除。
+
+预计释放约 `880 MiB` 工作区空间；不执行 Git history rewrite。
+
+## 2. 第一部分：本地 ignored 产物清理
+
+执行前解析绝对路径并确认目标仍位于仓库根目录内，然后删除以下生成物：
+
+```text
+artifacts/ 下除 tracked .gitkeep 外的全部生成物
+results/ 全部生成物
+.pytest_cache/
+ble_studio/__pycache__/
+ble_studio/logic_analyzer/__pycache__/
+examples/__pycache__/
+tests/core/__pycache__/
+tests/logic_analyzer/__pycache__/
+utils/__pycache__/
+template_data/
+gui-sock-*
+```
+
+清理时保留：
+
+```text
+artifacts/logic_analyzer/.gitkeep
+data/logic_analyzer/captures/
+data/logic_analyzer/quarantine/
+venv/
+.claude/
+```
+
+## 3. 第二部分：tracked 文件整理
+
+删除：
+
+```text
+results_logic_analyzer/
+save_log.md
+ble_studio/modulator_v0.py
+utils/get_bwv_info.py
+utils/read_mat.py
+utils/test.py
+utils/test_rf_metrics.py
+legacy/logic_analyzer/
+```
+
+同步修改：
+
+- `.gitignore`：增加 `results_logic_analyzer/`，避免旧工具再次把生成结果放回仓库。
+- `README.md`：从目录树中移除 `legacy/logic_analyzer/`。
+- `doc/logic_analyzer_data_processing.md`：将旧目录说明改为通过 Git history 查看历史实现。
+- `research.md`、`plan.md`：保留本次审计依据、执行状态和最终结果。
+
+不删除 deprecated logic-analyzer wrappers，因此旧命令路径保持兼容。
+
+## 4. 明确不做
+
+- 不删除或修改 `data/logic_analyzer/captures/`、`quarantine/` 中的原始数据。
+- 不删除 `reference/`、规范 PDF、Kingst profile 或正式 fixture。
+- 不删除 `venv/` 或 `.claude/`；它们分别是当前测试环境和本机工具配置。
+- 不合并或改名示例配置，不修改 Packet、Modulator、RX、Channel 或 exporter 行为。
+- 不执行 `git gc`、history rewrite、force push 或其他历史破坏操作。
+
+## 5. 兼容性影响
+
+- Python package、`ble-la`、现有兼容 wrapper 和测试 fixture 不受影响。
+- `ble_studio.modulator_v0` 从未被导出或引用，删除不改变 public API。
+- `legacy/logic_analyzer/` 旧源码不再存在于最新 checkout，但仍可通过 Git history 获取。
+- `results_logic_analyzer/` 的旧静态报告和 IQ 文件将从最新版本删除；正式输出目录继续是
+  `artifacts/logic_analyzer/`。
+
+## 6. 验证步骤
+
+1. 删除前后运行 `git status --short`，确认没有工作区外目标或意外文件。
+2. 使用 `rg` 检查删除路径、模块名和 legacy 文档引用已经清理。
+3. 运行完整测试：
+
+   ```powershell
+   $env:PYTHONDONTWRITEBYTECODE='1'
+   .\venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
+   ```
+
+4. 运行 `python -m ble_studio.logic_analyzer --help` 验证正式 CLI。
+5. 确认 `artifacts/` 只保留 tracked placeholder，`results/` 和其他生成物已清理。
+6. 执行 `git diff --check`、`git diff --stat` 和完整 `git diff` 审核。
+7. 汇报删除文件、释放空间、测试结果和保留项；未获得额外指令前不 push。
+
+## 7. 执行状态
+
+- 用户已回复 `GO`，并追加确认删除所有可再生输出。
+- 删除和验证后保持未提交、未 push 状态，等待用户检查。
+
+## 8. 第一波执行结果
+
+- 已删除 `results/`、`results_logic_analyzer/`、可访问的 `artifacts/` 生成物、旧实现、
+  conversation log 和四个一次性脚本。
+- 已从当前工作树移除 `legacy/logic_analyzer/` tracked 内容，并保留正式兼容 wrapper。
+- `.gitignore`、README 目录树和逻辑分析仪入口文档已同步更新。
+- 完整 regression：`93 passed in 18.40s`。
+- `python -m ble_studio.logic_analyzer --help` 正常。
+- active source、test、config 和文档中没有残留已删除路径引用。
+- 以下 ignored 目录由此前受限测试进程创建，Windows ACL 拒绝当前用户读取或删除；
+  `takeown` 和 `icacls /reset` 仍无法遍历其子目录：
+
+  ```text
+  .pytest_cache/
+  artifacts/logic_analyzer/legacy/
+  artifacts/waveforms/
+  legacy/logic_analyzer/scripts/__pycache__/
+  ```
+
+  这些目录不属于 Git tracked source。需在具备相应 Windows 权限的终端中单独清理。
+
+---
+
+# README 使用教程重写计划
+
+状态：已完成（2026-09-28）
+
+日期：2026-09-28
+
+## 1. 目标
+
+将 README 从混合型 API 手册收敛为简洁、可复制执行的 BLEStudio 入门教程，修复首次运行
+时因 Python 环境不一致导致的 `ModuleNotFoundError`，并删除与当前实现不一致的配置说明。
+
+目标长度约 200--250 行；详细算法和 API 说明继续保留在源码、`doc/` 和示例配置中。
+
+## 2. README 新结构
+
+1. 项目定位和数据流：BLE TX/外部 IQ → Channel → BLE RX → 报告/波形。
+2. 主要功能：LE1M/LE2M、Packet/DTM、GFSK、信道、波形导出、逻辑分析仪。
+3. Windows PowerShell 安装：创建 venv，使用同一个 venv Python 安装和运行。
+4. Linux/macOS 安装：对应的 `python3`/`venv` 命令。
+5. 第一次运行：默认配置和报告位置。
+6. 96 MHz LE1M PRBS9 37-byte 波形：命令、输出目录和 TXT/MAT/MEM/JSON 语义。
+7. 配置文件：只展示当前有效的 `common`/`tx`/`channel`/`io`/`output` 结构。
+8. 逻辑分析仪：`ble-la`/module CLI 命令、capture 前提和专题文档链接。
+9. 当前支持范围和限制：LE Coded 未实现、integer SPS、Packet interval 未实现。
+10. 测试、项目目录和参考文档。
+
+## 3. 具体修改
+
+- 将所有首次运行命令改为：
+
+  ```powershell
+  .\venv\Scripts\python.exe -m pip install -e .
+  .\venv\Scripts\python.exe examples\demo.py
+  ```
+
+- 增加 `ModuleNotFoundError` 的排查提示，说明安装和运行必须使用同一解释器。
+- 删除旧的顶层 `mode`/`rf_test` YAML 片段，改为当前配置 schema。
+- 更正默认 `ebn0_db`、真实 bypass、输出目录和导出开关说明。
+- 保留 96 MHz 配置示例，明确输出目录在 `artifacts/` 下且该目录是可再生输出。
+- 删除重复的 API 代码、可视化图表清单、长日志和未验证的宽泛能力声明。
+- 保留链接：`doc/logic_analyzer/`、`doc/ebn0_vs_snr.md`、`doc/gfsk_phase_pulse.md`、
+  `reference/`。
+
+## 4. 验证
+
+重写后执行：
+
+```powershell
+.\venv\Scripts\python.exe -c "import ble_studio, examples.demo"
+.\venv\Scripts\python.exe -m ble_studio.logic_analyzer --help
+.\venv\Scripts\python.exe -m pytest -q -p no:cacheprovider
+```
+
+并使用 `rg` 检查 README 中不再出现裸 `python examples/demo.py`、旧 YAML schema、
+已删除 `results_logic_analyzer`/`legacy/logic_analyzer` 路径和不存在的 Packet interval
+实现声明。
+
+## 5. 执行结果
+
+- README 从约 769 行压缩为 207 行，聚焦安装、首次运行、96 MHz 波形、配置、逻辑分析仪
+  和测试入口。
+- 所有 Windows 示例命令绑定到 `venv\\Scripts\\python.exe`，并增加 `ModuleNotFoundError`
+  和 `scipy` 排查说明。
+- 删除旧的 `mode`/`rf_test` 配置示例，改为当前 `common`/`tx`/`channel`/`io`/`output`
+  schema。
+- 明确输出目录由 `output.dir` 决定、96 MHz 波形目录、JSON sidecar 内容，以及当前
+  Packet interval 尚未实现的事实。
+- README 链接检查通过；`ble_studio` 导入、logic analyzer CLI help 和完整测试均通过。
+- 完整测试结果：`93 passed in 9.93s`。

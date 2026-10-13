@@ -117,7 +117,7 @@ def test_data_channel_custom_crc_and_whitening_loopback() -> None:
 
 def test_matlab_bwv_reference_still_decodes() -> None:
     signal, sample_rate = import_iq_mat(
-        PROJECT_ROOT / "data" / "iq" / "BLE_1M.bwv",
+        PROJECT_ROOT / "reference" / "vectors" / "BLE_1M.bwv",
         complex_var="wave",
     )
     result = BLEDemodulator(DemodulatorConfig(

@@ -4,7 +4,18 @@ import numpy as np
 import pytest
 from ble_studio.packet import BLEPhyMode
 
-from examples.demo import SimConfig, run_simulation
+from examples.demo import SimConfig, load_config, run_simulation
+
+
+def test_demo_default_output_is_under_artifacts():
+    assert SimConfig().output_dir == 'artifacts/waveforms/default'
+    assert SimConfig.from_dict({}).output_dir == 'artifacts/waveforms/default'
+
+
+def test_missing_config_does_not_silently_generate_default_signal(tmp_path):
+    missing = tmp_path / 'missing.yaml'
+    with pytest.raises(FileNotFoundError, match='missing.yaml'):
+        load_config(str(missing))
 
 
 def test_dtm_demo_passes_custom_access_address(tmp_path) -> None:

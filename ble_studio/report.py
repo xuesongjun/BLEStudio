@@ -92,7 +92,7 @@ def _fig_to_html_div(fig, div_id: str):
 class ReportGenerator:
     """HTML 报告生成器"""
 
-    def __init__(self, output_dir: str = "results", theme: str = 'instrument'):
+    def __init__(self, output_dir: str = "artifacts/reports", theme: str = 'instrument'):
         self.output_dir = output_dir
         self.theme = theme
         # 根据主题创建可视化器

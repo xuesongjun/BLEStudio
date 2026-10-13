@@ -9,9 +9,22 @@ import pytest
 from ble_studio.iq_io import (
     IQExportConfig,
     IQExporter,
+    import_iq_txt,
     describe_file,
     write_pretty_json,
 )
+
+
+def test_txt_roundtrip_preserves_iq_and_correlation(tmp_path):
+    signal = 0.8 * np.exp(2j * np.pi * np.arange(128) / 128)
+    path = tmp_path / 'roundtrip.txt'
+    IQExporter(IQExportConfig(bit_width=12, frac_bits=11, scale_to_full=False)).export_txt(signal, path)
+    restored = import_iq_txt(path, bit_width=12, frac_bits=11)
+    assert len(restored) == len(signal)
+    np.testing.assert_allclose(restored.real, signal.real, atol=0.5 / 2048, rtol=0)
+    np.testing.assert_allclose(restored.imag, signal.imag, atol=0.5 / 2048, rtol=0)
+    assert np.corrcoef(signal.real, restored.real)[0, 1] > 0.999
+    assert np.corrcoef(signal.imag, restored.imag)[0, 1] > 0.999
 
 
 def test_quantize_rounds_half_lsb_away_from_zero_for_i_and_q() -> None:

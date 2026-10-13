@@ -69,18 +69,8 @@ gui-sock-*
 
 # Results and outputs
 results/
-results_logic_analyzer/
 output_*.html
-artifacts/*
-!artifacts/logic_analyzer/
-artifacts/logic_analyzer/*
-!artifacts/logic_analyzer/.gitkeep
-
-# Local logic analyzer captures
-data/logic_analyzer/captures/*
-!data/logic_analyzer/captures/.gitkeep
-data/logic_analyzer/quarantine/*
-!data/logic_analyzer/quarantine/.gitkeep
+/artifacts/
 
 # OS files
 .DS_Store

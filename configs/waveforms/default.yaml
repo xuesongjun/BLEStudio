@@ -1,0 +1,117 @@
+# BLE Studio 仿真配置文件
+#
+# 数据流: TX → [信道入口] → 信道模型 → [信道出口] → RX
+#
+# 配置结构:
+#   common       - 公共参数 (模式、信道号)
+#   tx           - 发送端参数
+#   channel      - 信道模型参数
+#   rx           - 接收端参数 (预留)
+#   io           - 数据导入导出
+#   output       - 输出配置
+
+# ============================================================
+# 公共参数
+# ============================================================
+common:
+  # 仿真模式: advertising (广播包) 或 rf_test (射频测试)
+  mode: "rf_test"
+  # BLE 信道号 (0-36: 数据信道, 37/38/39: 广播信道)
+  channel: 0
+
+# ============================================================
+# 发送端 (TX)
+# ============================================================
+tx:
+  # PHY 模式: LE_1M, LE_2M, LE_CODED_S2, LE_CODED_S8
+  phy_mode: "LE_1M"
+  # 采样率 (Hz)
+  sample_rate: 8.0e6
+  # 调制指数 h (0.45-0.55), 频偏 Δf = h × symbol_rate / 2
+  modulation_index: 0.5
+  # 高斯滤波器 BT 积 (带宽 × 符号周期)
+  bt: 0.5
+
+  # ----- 广播模式参数 -----
+  adv_address: "11:22:33:44:55:66"
+  adv_data: "0201060908424c455374756469"
+
+  # ----- RF Test 模式参数 -----
+  # 负载类型: PRBS9, PRBS15, PATTERN_11110000, PATTERN_10101010, ...
+  payload_type: "PRBS9"
+  payload_length: 37
+  whitening: false
+  # 0 表示按模式选择默认 Access Address
+  access_address: 0
+  crc_init: 0x555555
+
+# ============================================================
+# 信道模型
+# ============================================================
+channel:
+  # Eb/N0 (dB) - 每比特能量与噪声功率谱密度之比
+  #
+  # 与传统 SNR 的区别:
+  #   - Eb/N0 是与带宽无关的物理量，便于比较不同速率系统
+  #   - SNR(带内) = Eb/N0 - 10*log10(采样率/符号率)
+  #   - LE 1M @ 8Msps: SNR = Eb/N0 - 9 dB
+  #   - LE 2M @ 8Msps: SNR = Eb/N0 - 6 dB
+  #
+  # 解调门限 (30% PER):
+  #   - LE 1M: ~16 dB Eb/N0 (对应 ~7 dB 带内 SNR)
+  #   - LE 2M: ~14 dB Eb/N0 (对应 ~8 dB 带内 SNR)
+  #
+  ebn0_db: 100  # 无噪声 (100 dB ≈ 无限大)
+  # 载波频偏 (Hz)
+  freq_offset: 0
+
+# ============================================================
+# 接收端 (RX) - 预留
+# ============================================================
+rx:
+  # 未来可添加: AGC、滤波器、同步参数等
+  enabled: true
+
+# ============================================================
+# 数据导入导出 (IO)
+# ============================================================
+io:
+  # ----- 信道入口: 导入外部 IQ 替代 TX -----
+  input:
+    enabled: false
+    file: ""
+    file_type: "auto"  # auto, txt, mat
+    # TXT 配置
+    bit_width: 12
+    iq_format: "two_column"  # two_column, interleaved
+    number_format: "signed"  # signed, unsigned, hex, float
+    skip_lines: 0
+    # MAT 配置
+    mat_complex_var: ""  # 复数变量名 (如 "wave")
+    mat_i_var: "I"
+    mat_q_var: "Q"
+
+  # ----- 信道出口: 导出 IQ 数据 -----
+  output:
+    enabled: true
+    bit_width: 12
+    iq_format: "two_column"
+    number_format: "signed"
+    scale_to_full: true
+    add_header: true
+    # 导出格式
+    export_txt: true
+    export_mat: true
+    export_verilog: true
+    export_separate: false
+    export_tx: true  # 同时导出 TX 理想信号
+
+# ============================================================
+# 输出配置
+# ============================================================
+output:
+  dir: "artifacts/waveforms/default"
+  html_report: true
+  html_charts: true
+  # 图表主题: default (白底), dark (深灰底), instrument (黑底)
+  theme: "instrument"

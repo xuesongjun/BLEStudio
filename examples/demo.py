@@ -148,7 +148,7 @@ class SimConfig:
     k_factor: float = 4.0          # 莱斯 K 因子
 
     # 输出配置
-    output_dir: str = "results"
+    output_dir: str = "artifacts/waveforms/default"
     html_report: bool = True
     theme: str = "instrument"
 
@@ -186,7 +186,7 @@ class SimConfig:
             freq_offset=float(ch.get('freq_offset', 0)),
             doppler_freq=float(ch.get('doppler_freq', 1.0)),
             k_factor=float(ch.get('k_factor', 4.0)),
-            output_dir=out.get('dir', 'results'),
+            output_dir=out.get('dir', 'artifacts/waveforms/default'),
             html_report=out.get('html_report', True),
             theme=out.get('theme', 'instrument'),
             io_input=io_cfg.get('input', {}),
@@ -735,14 +735,13 @@ def run_simulation(cfg: SimConfig, raw_config: dict):
 # ============================================================
 def load_config(path: str) -> dict:
     """加载配置文件"""
-    if os.path.exists(path):
-        with open(path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f) or {}
-    return {}
+    # 配置缺失时明确失败，避免误用默认参数生成另一种波形。
+    with open(path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f) or {}
 
 
 if __name__ == "__main__":
-    config_path = sys.argv[1] if len(sys.argv) > 1 else "examples/config.yaml"
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "configs/waveforms/default.yaml"
     raw_config = load_config(config_path)
     cfg = SimConfig.from_dict(raw_config)
     run_simulation(cfg, raw_config)
